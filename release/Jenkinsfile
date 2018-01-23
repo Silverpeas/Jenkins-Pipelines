@@ -1,4 +1,4 @@
-/* 
+/*
  * This pipeline requires the following build parameter to be set:
  * BUILD_VERSION: the version number of an existing Silverpeas build from which the release will be performed
  */
@@ -6,7 +6,7 @@ node {
   catchError {
     def maven = 'Maven 3.3'
     def java = 'Java Oracle 8'
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/mmoqui-repo'
+    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     stage('Preparation') {
       // Get the Maven tool.
@@ -24,7 +24,7 @@ node {
 
         // checkout the project
         deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/mmoqui/Silverpeas-Core'
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Core'
 
         // release the project
         releaseProject(commit, version)
@@ -41,7 +41,7 @@ node {
 
         // checkout the project
         deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/mmoqui/Silverpeas-Components'
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Components'
 
         // release the project
         releaseProject(commit, version)
@@ -53,7 +53,7 @@ node {
       withMaven(jdk: java, maven: maven) {
         // checkout the project
         deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/mmoqui/Silverpeas-Assembly'
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Assembly'
 
         sh """
 git checkout -b pre-release-${version}
@@ -75,7 +75,7 @@ git commit -am "Prepare the release of ${version}"
       def commit = manifest.main['Git-Commit']
 
       deleteDir()
-      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/mmoqui/Silverpeas-Setup'
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Setup'
 
       releaseProject(commit, version)
       prepareNextSnapshotVersion(commit, version)
@@ -84,7 +84,7 @@ git commit -am "Prepare the release of ${version}"
       echo "Release Silverpeas Distribution ${version}..."
       withMaven(jdk: java, maven: maven) {
         // Fetch the Git commit corresponding to the build number
-        sh """ 
+        sh """
 wget ${nexusRepo}/org/silverpeas/silverpeas-distribution/${params.BUILD_VERSION}/silverpeas-distribution-${params.BUILD_VERSION}.zip
 unzip -j silverpeas-distribution-${params.BUILD_VERSION}.zip silverpeas*/BUILD
 """
@@ -92,17 +92,11 @@ unzip -j silverpeas-distribution-${params.BUILD_VERSION}.zip silverpeas*/BUILD
         def commit = buildProps['Git-Commit']
 
         deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/mmoqui/Silverpeas-Distribution'
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Distribution'
 
         releaseProject(commit, version)
         prepareNextSnapshotVersion(commit, version)
       }
-    }
-    stage('Notification') {
-      step([$class: 'Mailer',
-            notifyEveryUnstableBuild: true,
-            recipients: "miguel.moquillon@silverpeas.org",
-            sendToIndividuals: true])
     }
   }
   step([$class: 'Mailer',
@@ -113,8 +107,8 @@ unzip -j silverpeas-distribution-${params.BUILD_VERSION}.zip silverpeas*/BUILD
 
 def buildGradleProject(version) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/mmoqui-repo/g" build.gradle
-sed -i -e "s/repositories\\/releases/repositories\\/mmoqui-repo/g" build.gradle
+sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" build.gradle
+sed -i -e "s/repositories\\/releases/repositories\\/releases/g" build.gradle
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 ./gradlew clean install publish
 """
@@ -122,9 +116,9 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 
 def buildMavenProjectSnapshot(nextVersion) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/mmoqui-repo/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/mmoqui-repo/g" pom.xml
-sed -i -e "s/<pre.release>[0-9.]\\+/<pre.release>${nextVersion}/g" pom.xml
+sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
+sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
 mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnextSnapshot=true -DnewVersion=${nextVersion}
 mvn clean install -Dmaven.test.skip=true
 """
@@ -132,8 +126,8 @@ mvn clean install -Dmaven.test.skip=true
 
 def buildMavenProjectRelease(version) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/mmoqui-repo/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/mmoqui-repo/g" pom.xml
+sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
+sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
 mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 """
@@ -163,7 +157,7 @@ def prepareNextSnapshotVersion(commit, version) {
   } else {
     echo "Create bug-fix branch ${version}.x"
     nextversion = "${versionParts[0]}.${(versionParts[1] as Integer) + 1}"
-    mainbranch = 'continuous-deployment'
+    mainbranch = 'master'
     createMinorBranchFor(version)
   }
 
@@ -175,7 +169,7 @@ def prepareNextSnapshotVersion(commit, version) {
     buildGradleProject(nextversion)
   }
   sh """
-git commit -am "${version} has been released from commit ${commit}. Prepare for next development iteration of next version ${nextversion}"
+git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for next development iteration of next version ${nextversion}"
 git push origin ${mainbranch}
 """
 }
