@@ -5,11 +5,15 @@ node {
     stage('Release') {
       withMaven(jdk: java, maven: maven) {
         // checkout the project
+        deleteDir()
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Jackrabbit-JCA.git'
 
         // identify the version
         def pom = readMavenPom()
         def version = pom.properties['next.release']
+        if (pom.properties['silverpeas-jca.version'].contains('build') || pom.properties['silverpeas-jca.version'].contains('SNAPSHOT')) {
+          error("The Silverpeas JCR AccessControl dependency must be a stable version for this project to be released. Current version is ${pom.properties['silverpeas-jca.version']}")
+        }
 
         // release the project
         releaseProject('master', version)
@@ -24,9 +28,7 @@ node {
 
 def buildMavenProjectRelease(version) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
-mvn -U versions:update-properties -Dincludes=silverpeas-jca.version versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 """
 }
@@ -44,5 +46,6 @@ git checkout -b release-${version}
 git commit -am "Release of ${version}"
 git tag ${version}
 git push origin --tags
+git push origin master
 """
 }

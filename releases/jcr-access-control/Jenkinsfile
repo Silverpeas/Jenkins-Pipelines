@@ -11,8 +11,8 @@ node {
     stage('Preparation') {
       echo "Prepare the release of JCR Access Control ${version}..."
       // Get the Maven tool.
-      mvnHome = tool 'Maven 3.3'
       version = getVersionNumber(params.BUILD_VERSION)
+      deleteDir()
     }
     stage('Release') {
       echo "Release of JCR Access Control ${version}..."
@@ -40,19 +40,15 @@ node {
 
 def buildMavenProjectSnapshot(nextVersion) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
-mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnextSnapshot=true -DnewVersion=${nextVersion}
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
 mvn clean install -Dmaven.test.skip=true
 """
 }
 
 def buildMavenProjectRelease(version) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
-mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 """
 }

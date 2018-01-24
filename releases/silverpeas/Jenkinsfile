@@ -10,7 +10,6 @@ node {
     def version
     stage('Preparation') {
       // Get the Maven tool.
-      mvnHome = tool 'Maven 3.3'
       version = getVersionNumber(params.BUILD_VERSION)
       echo "Prepare the release of Silverpeas ${version}..."
     }
@@ -63,6 +62,10 @@ wget ${nexusRepo}/org/silverpeas/silverpeas-assembly/${params.BUILD_VERSION}/sil
 git commit -am "Prepare the release of ${version}"
 """
         // release the project
+        def pom = readMavenPom()
+        if (pom.properties['jackrabbit.version'].contains('build') || pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
+          error ("The Jackrabbit JCA dependency must be a stable version for this project to be released. Currently version is ${pom.properties['jackrabbit.version']})
+        }
         releaseProject("pre-release-${version}", version)
         prepareNextSnapshotVersion('master', version)
       }
@@ -107,8 +110,6 @@ unzip -j silverpeas-distribution-${params.BUILD_VERSION}.zip silverpeas*/BUILD
 
 def buildGradleProject(version) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" build.gradle
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" build.gradle
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 ./gradlew clean install publish
 """
@@ -116,19 +117,19 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 
 def buildMavenProjectSnapshot(nextVersion) {
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
-mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnextSnapshot=true -DnewVersion=${nextVersion}
-mvn clean install -Dmaven.test.skip=true
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
+mvn clean deploy -Dmaven.test.skip=true
 """
 }
 
 def buildMavenProjectRelease(version) {
+  def pom = readMavenPom()
+  if (pom.getParent()?.getVersion().contains('build') || pom.getParent()?.getVersion().contains('SNAPSHOT')) {
+      error("The version of parent POM must be a stable version for this project to be released. Currently version is ${pom.getParent().getVersion()}")
+  }
   sh """
-sed -i -e "s/repositories\\/snapshots/repositories\\/snapshots/g" pom.xml
-sed -i -e "s/repositories\\/releases/repositories\\/releases/g" pom.xml
-mvn -U versions:update-parent versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 """
 }
