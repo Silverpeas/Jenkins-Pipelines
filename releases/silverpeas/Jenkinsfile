@@ -9,7 +9,6 @@ node {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     stage('Preparation') {
-      // Get the Maven tool.
       version = getVersionNumber(params.BUILD_VERSION)
       echo "Prepare the release of Silverpeas ${version}..."
     }
@@ -18,7 +17,6 @@ node {
       withMaven(jdk: java, maven: maven) {
         def commit =
             getCommitHash("${nexusRepo}/org/silverpeas/core/silverpeas-core-api/${params.BUILD_VERSION}/silverpeas-core-api-${params.BUILD_VERSION}.jar")
-        echo "commit is ${commit}"
 
         // checkout the project
         deleteDir()
@@ -136,16 +134,10 @@ git push origin ${version}.x
 
 def prepareNextSnapshotVersion(commit, version) {
   echo "-> Prepare Next Snapshot version after ${version}"
-  def nextversion
-  def mainbranch
-  def versionParts = version.split('\\.')
-  if (isMinor(version)) {
-    nextversion = "${versionParts[0]}.${versionParts[1]}.${(versionParts[2] as Integer) + 1}"
-    mainbranch = "${versionParts[0]}.${versionParts[1]}.x"
-  } else {
+  def nextversion = getNextVersion(version)
+  def mainbranch = getMainBranch(version)
+  if (!isMinor(version)) {
     echo "Create bug-fix branch ${version}.x"
-    nextversion = "${versionParts[0]}.${(versionParts[1] as Integer) + 1}"
-    mainbranch = 'master'
     createMinorBranchFor(version)
   }
 
@@ -157,7 +149,7 @@ def prepareNextSnapshotVersion(commit, version) {
     buildGradleProject(nextversion)
   }
   sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for next development iteration of next version ${nextversion}"
+git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
 git push origin ${mainbranch}
 """
 }
@@ -213,4 +205,16 @@ def getVersionNumber(buildVersion) {
 @NonCPS
 def isMinor(version) {
   (version =~ '\\d+.\\d+.\\d+').matches()
+}
+
+@NonCPS
+def getNextVersion(version) {
+  String[] parts = version.split('\\.')
+  parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+}
+
+@NonCPS
+def getMainBranch(version) {
+  def matcher = version =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
 }

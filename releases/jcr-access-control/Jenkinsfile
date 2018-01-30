@@ -9,9 +9,8 @@ node {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     stage('Preparation') {
-      echo "Prepare the release of JCR Access Control ${version}..."
-      // Get the Maven tool.
       version = getVersionNumber(params.BUILD_VERSION)
+      echo "Prepare the release of JCR Access Control ${version}..."
       deleteDir()
     }
     stage('Release') {
@@ -55,14 +54,13 @@ mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 
 def prepareNextSnapshotVersion(commit, version) {
   echo "-> Prepare Next Snapshot version after ${version}"
-  def versionParts = version.split('\\.')
-  def nextversion = "${versionParts[0]}.${(versionParts[1] as Integer) + 1}"
+  def nextversion = getNextVersion(version)
 
   echo "Prepare the next development iteration for ${nextversion}"
   sh "git checkout master"
   buildMavenProjectSnapshot(nextversion)
   sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for next development iteration of next version ${nextversion}"
+git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
 git push origin master
 """
 }
@@ -87,4 +85,10 @@ git push origin --tags
 def getVersionNumber(buildVersion) {
   def matcher = buildVersion =~ '(.+)-build\\d+'
   matcher ? matcher[0][1] : null
+}
+
+@NonCPS
+def getNextVersion(version) {
+  String[] parts = version.split('\\.')
+  "${parts[0]}.${(parts[1] as Integer) + 1}"
 }

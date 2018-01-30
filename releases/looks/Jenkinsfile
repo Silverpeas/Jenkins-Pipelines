@@ -1,0 +1,117 @@
+/*
+ * This pipeline requires the following build parameter to be set:
+ * BUILD_VERSION: the version number of an existing Silverpeas build from which the release will be performed
+ */
+node {
+  catchError {
+    def maven = 'Maven 3.3'
+    def java = 'Java Oracle 8'
+    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def version
+    def nextversion
+    def mainbranch
+    stage('Preparation') {
+      version = getVersionNumber(params.BUILD_VERSION)
+      echo "Prepare the release of Silverpeas Looks ${version}..."
+      // Fetch the Git commit corresponding to the build number
+      sh "wget ${nexusRepo}/org/silverpeas/looks/${params.BUILD_VERSION}/looks-${params.BUILD_VERSION}.pom"
+      def pom = readMavenPom file: "looks-${params.BUILD_VERSION}.pom"
+      version = pom.properties['next.release']
+      deleteDir()
+    }
+    stage('Release') {
+      echo "Release of Silverpeas Looks ${version}..."
+      withMaven(jdk: java, maven: maven) {
+        // Fetch the Git commit corresponding to the build number
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Looks.git'
+
+        mainbranch = getMainBranch(version)
+        sh "git checkout ${mainbranch}"
+        buildMavenProjectRelease(version)
+        sh """
+git commit -am "Release of ${version}"
+git tag ${version}
+git push origin --tags
+        """
+      }
+    }
+    stage('Bug-fix branch') {
+      nextversion = getNextMinorVersion(version)
+      if (!isMinor(version)) {
+        echo "Create bug-fix branch ${version}.x..."
+        withMaven(jdk: java, maven: maven) {
+          sh "git checkout -b ${version}.x"
+          buildMavenProjectSnapshot(nextversion)
+          sh """
+git commit -am "Inception of the main bug-fix branch ${version}.x"
+git push origin ${version}.x:${version}.x
+git checkout master
+"""
+          nextversion = getNextMajorVersion(version)
+        }
+      }
+    }
+    stage('Next Development Version') {
+      echo "Prepare the next development version ${nextversion}-SNAPSHOT..."
+      withMaven(jdk: java, maven: maven) {
+        buildMavenProjectSnapshot(nextversion)
+        sh """
+git commit -am "Prepare for development iteration of next version ${nextversion}"
+git push origin HEAD:${mainbranch}
+"""
+      }
+    }
+  }
+  step([$class                  : 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients              : "miguel.moquillon@silverpeas.org",
+        sendToIndividuals       : true])
+}
+
+def buildMavenProjectSnapshot(nextVersion) {
+  sh """
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${nextVersion}-SNAPSHOT/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
+mvn clean install -Dmaven.test.skip=true
+mvn deploy -Dmaven.test.skip=true
+"""
+}
+
+def buildMavenProjectRelease(version) {
+  sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean install -Prelease-sign-artifacts
+mvn deploy -Prelease-sign-artifacts
+"""
+}
+
+@NonCPS
+def getVersionNumber(buildVersion) {
+  def matcher = buildVersion =~ '(.+)-build\\d+'
+  matcher ? matcher[0][1] : null
+}
+
+@NonCPS
+def isMinor(version) {
+  (version =~ '\\d+.\\d+.\\d+').matches()
+}
+
+@NonCPS
+def getNextMinorVersion(version) {
+  String[] parts = version.split('\\.')
+  parts.length < 3 ? "${parts[0]}.${parts[1]}.1" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+}
+
+@NonCPS
+def getNextMajorVersion(version) {
+  String[] parts = version.split('\\.')
+  "${parts[0]}.${(parts[1] as Integer) + 1}"
+}
+
+@NonCPS
+def getMainBranch(version) {
+  def matcher = version =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
+}
