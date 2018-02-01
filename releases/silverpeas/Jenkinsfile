@@ -86,6 +86,23 @@ git commit -am "Prepare the release of ${version}"
         prepareNextSnapshotVersion(commit, version)
       }
     }
+    stage('Silverpeas Izpack Installer') {
+      echo "Generate the Izpack installer for Silverpeas ${version}"
+      withMaven(jdk: java, maven: maven) {
+        deleteDir()
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
+
+        sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean install
+git commit -am "Build and deliver the Izpack installer for Silverpeas ${version}"
+git tag ${version}
+git push origin HEAD:master
+git push --tags
+"""
+      }
+    }
   }
   step([$class: 'Mailer',
         notifyEveryUnstableBuild: true,
