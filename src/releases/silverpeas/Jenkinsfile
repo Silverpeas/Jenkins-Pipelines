@@ -7,6 +7,7 @@ node {
     def maven = 'Maven 3.3'
     def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def wildflyVersion = '10.1.0'
     def version
     stage('Preparation') {
       version = getVersionNumber(params.BUILD_VERSION)
@@ -102,6 +103,32 @@ git push origin HEAD:master
 git push --tags
 """
       }
+    }
+    stage('Silverpeas Docker Image') {
+      echo "Generate a Docker image of Silverpeas ${version}"
+      deleteDir()
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/docker-silverpeas-prod'
+
+      sh """
+./generate-dockerfile.sh ${version} ${wildflyVersion}
+git commit -am "Generate Dockerfile for Silverpeas ${version}"
+git tag ${version}
+git push origin HEAD:master
+git push --tags
+./generate-docker-library.sh > silverpeas
+"""
+      stash includes: 'silverpeas', name: 'docker-library'
+
+      deleteDir()
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/official-images'
+
+      dir('library') {
+        unstash 'docker-library'
+      }
+      sh """
+git commit -am "Update Silverpeas Docker image version ${version}"
+git push origin HEAD:master
+"""
     }
   }
   step([$class: 'Mailer',
