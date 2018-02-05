@@ -1,6 +1,3 @@
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-
 node {
   catchError {
     def maven = 'Maven 3.3'
@@ -8,8 +5,8 @@ node {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     stage('Preparation') {
-      def buildNumber = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"))
-      echo "Prepare the build ${build} of Silverpeas..."
+      def buildNumber = (new Date()).format('yyMMdd')
+      echo "Prepare the build ${buildNumber} of Silverpeas..."
       sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/master/pom.xml"
       def pom = readMavenPom()
       version = "${pom.properties['next.release']}-build${buildNumber}"
@@ -33,7 +30,7 @@ node {
         deleteDir()
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Components'
 
-        buildMavenProject(build)
+        buildMavenProject(version)
         runSonarAnalysis()
         deployMavenProject(nexusRepo)
       }
@@ -49,7 +46,7 @@ node {
         if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
           error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be released. Currently version is ${pom.properties['jackrabbit.version']}")
         }
-        buildAndDeployMavenProject(build)
+        buildAndDeployMavenProject(version)
       }
     }
     stage('Silverpeas Setup') {

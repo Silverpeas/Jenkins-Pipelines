@@ -88,12 +88,13 @@ git commit -am "Prepare the release of ${version}"
       }
     }
     stage('Silverpeas Izpack Installer') {
-      echo "Generate the Izpack installer for Silverpeas ${version}"
-      withMaven(jdk: java, maven: maven) {
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
+      if (!isMinor(version)) {
+        echo "Generate the Izpack installer for Silverpeas ${version}"
+        withMaven(jdk: java, maven: maven) {
+          deleteDir()
+          git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
 
-        sh """
+          sh """
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean install
@@ -102,7 +103,22 @@ git tag ${version}
 git push origin HEAD:master
 git push --tags
 """
+        }
       }
+    }
+    stage('Silverpeas Test Docker Image') {
+      echo "Generate a Test Docker image of Silverpeas ${version}"
+      deleteDir()
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/docker-silverpeas-test'
+
+      sh """
+sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${version}/g" Dockerfile
+sed -i -e "s/build=.\\+/build=1/g" Dockerfile
+git commit -am "Update Dockerfile for Silverpeas ${version}"
+git tag ${version}
+git push origin HEAD:master
+git push --tags
+"""
     }
     stage('Silverpeas Docker Image') {
       echo "Generate a Docker image of Silverpeas ${version}"
