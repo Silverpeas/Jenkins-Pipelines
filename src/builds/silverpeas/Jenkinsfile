@@ -75,6 +75,15 @@ node {
         deployMavenProject(version)
       }
     }*/
+    stage('Project Web Site') {
+      echo "Publish the web site with the new build version ${version}..."
+      deleteDir()
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
+      sh """
+sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
+mvn clean site-deploy
+"""
+    }
   }
   step([$class: 'Mailer',
         notifyEveryUnstableBuild: true,
