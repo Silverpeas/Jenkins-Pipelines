@@ -7,6 +7,7 @@ node {
     stage('Preparation') {
       def buildNumber = (new Date()).format('yyMMdd')
       echo "Prepare the build ${buildNumber} of Silverpeas..."
+      deleteDir()
       sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/master/pom.xml"
       def pom = readMavenPom()
       version = "${pom.properties['next.release']}-build${buildNumber}"
@@ -44,7 +45,10 @@ node {
 
         def pom = readMavenPom()
         if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-          error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be released. Currently version is ${pom.properties['jackrabbit.version']}")
+          error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
+        }
+        if (pom.parent.version.contains('SNAPSHOT')) {
+          error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
         }
         buildAndDeployMavenProject(version)
       }
@@ -99,6 +103,10 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 }
 
 def buildMavenProject(version) {
+  def pom = readMavenPom()
+  if (pom.parent != null && pom.parent.version.contains('SNAPSHOT')) {
+    error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+  }
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci

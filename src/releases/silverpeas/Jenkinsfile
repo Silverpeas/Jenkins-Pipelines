@@ -58,7 +58,7 @@ git commit -am "Prepare the release of ${version}"
         // release the project
         def pom = readMavenPom()
         if (pom.properties['jackrabbit.version'].contains('build') || pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-          error ("The Jackrabbit JCA dependency must be a stable version for this project to be released. Currently version is ${pom.properties['jackrabbit.version']}")
+          error ("The Jackrabbit JCA dependency must be a stable version for this project to be released. Current version is ${pom.properties['jackrabbit.version']}")
         }
         releaseProject("pre-release-${version}", version)
         prepareNextSnapshotVersion('master', version)
@@ -171,7 +171,7 @@ mvn clean deploy -Dmaven.test.skip=true -Pdeployment
 def buildMavenProjectRelease(version) {
   def pom = readMavenPom()
   if (pom.parent != null && (pom.parent.version.contains('build') || pom.parent.version.contains('SNAPSHOT'))) {
-    error "The version of parent POM must be a stable version for this project to be released. Currently version is ${pom.parent.version}"
+    error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
   }
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
