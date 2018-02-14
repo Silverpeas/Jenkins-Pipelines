@@ -98,6 +98,7 @@ mvn clean site-deploy
 def buildAndDeployGradleProject(version) {
   sh """
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
+sed -i -e 's/repositories\\/releases/repositories\\/builds/g' build.gradle
 ./gradlew clean install publish
 """
 }
@@ -126,7 +127,7 @@ def deployMavenProject(repo) {
 def buildAndDeployMavenProject(version) {
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-mvn clean deploy -Djava.awt.headless=true
+mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true
 """
 }
 
