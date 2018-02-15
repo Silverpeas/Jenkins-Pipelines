@@ -29,14 +29,7 @@ node {
     stage('Build Silverpeas Assembly') {
       echo "Build ${version} of Silverpeas Assembly..."
       withMaven(jdk: java, maven: maven) {
-        buildMavenProject('Silverpeas-Assembly', version) { pom ->
-          if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-            error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
-          }
-          if (pom.parent.version.contains('SNAPSHOT')) {
-            error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
-          }
-        }
+        buildMavenProject('Silverpeas-Assembly', version)
       }
     }
     stage('Build Silverpeas Setup') {
@@ -91,11 +84,13 @@ mvn clean site-deploy
         sendToIndividuals: true])
 }
 
-def buildGradleProject(project, version, checker) {
-  fetchProjectFromGithub(project)
-  if (checker && checker instanceof Closure) {
-    checker()
-  }
+def fetchFromGithub(project) {
+  deleteDir()
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+def buildGradleProject(project, version) {
+  fetchFromGithub(project)
   sh """
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 ./gradlew clean test install
@@ -103,14 +98,19 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
   stash name: project, includes: '**/build.gradle, **/build/**/*'
 }
 
-def buildMavenProject(project, version, checker) {
-  fetchProjectFromGithub(project)
+def buildMavenProject(project, version) {
+  fetchFromGithub(project)
   def pom = readMavenPom()
   if (pom.parent != null && pom.parent.version.contains('SNAPSHOT')) {
     error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
   }
-  if (checker && checker instanceof Closure) {
-    checker(pom)
+  if (project == 'Silverpeas-Assembly') {
+    if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
+      error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
+    }
+    if (pom.parent.version.contains('SNAPSHOT')) {
+      error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+    }
   }
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
@@ -126,24 +126,19 @@ def runSonarAnalysis() {
 }
 
 def deployGradleProject(project, repo) {
-  fetchProjectFromGithub(project)
+  fetchFromGithub(project)
   unstash name: project
   def target = fetchTargetRepo(repo)
   sh """
-sed -i -e 's/repositories\\\\/releases/${target.replaceAll('/', '\\\\/')}/g' build.gradle
+sed -i -e "s/repositories\\/releases/${target.replaceAll('/', '\\\\/')}/g" build.gradle
 ./gradlew publish
 """
 }
 
 def deployMavenProject(project, repo) {
-  fetchProjectFromGithub(project)
+  fetchFromGithub(project)
   unstash name: project
   sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
-}
-
-def fetchProjectFromGithub(project) {
-  deleteDir()
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
 @NonCPS

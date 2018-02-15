@@ -1,0 +1,89 @@
+node {
+  catchError {
+    def maven = 'Maven 3.3'
+    def java = 'Java Oracle 8'
+    def version
+    def nextversion
+    stage('Preparation') {
+      echo "Prepare the release of Silverpeas Project (and the dependencies definitions)..."
+      deleteDir()
+      sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
+      def pom = readMavenPom()
+      version = pom.properties['next.release']
+      nextversion = getNextVersion(version)
+    }
+    stage('Silverpeas Dependencies') {
+      echo "Release Silverpeas Dependencies ${version}..."
+      fetchFromGithub('silverpeas-dependencies-bom')
+      withMaven(jdk: java, maven: maven) {
+        def pom = readMavenPom()
+        if (pom.properties['jcr.accesscontrol.version'].contains('SNAPSHOT') || pom.properties['jcr.accesscontrol.version'].contains('build')) {
+          error "The Silverpeas JCR AccessControl dependency must be a stable version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
+        }
+        releaseVersion(version)
+        prepareNextVersion(nextversion)
+      }
+    }
+    stage('Silverpeas Test Dependencies') {
+      echo "Release Silverpeas Test Dependencies ${version}..."
+      fetchFromGithub('silverpeas-test-dependencies-bom')
+      withMaven(jdk: java, maven: maven) {
+        releaseVersion(version)
+        prepareNextVersion(nextversion)
+      }
+    }
+    stage('Silverpeas Project') {
+      echo "Release ${version} Silverpeas Project ${version}..."
+      fetchFromGithub('Silverpeas-Project')
+      withMaven(jdk: java, maven: maven) {
+        sh """
+sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
+"""
+        releaseVersion(version)
+
+        sh """
+sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextversion}-SNAPSHOT/g" pom.xml
+"""
+        prepareNextVersion(nextversion)
+      }
+    }
+  }
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals: true])
+}
+
+def releaseVersion(version) {
+  echo "-> Release version ${version}"
+  sh """
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean deploy -Djava.awt.headless=true
+git commit -am "Release of ${version}"
+git tag ${version}
+"""
+}
+
+def prepareNextVersion(nextversion) {
+  echo "-> Prepare Next Snapshot version ${nextversion}"
+  sh """
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
+mvn clean install -Djava.awt.headless=true
+git commit -am "Prepare for next development iteration of next version ${nextversion}"
+git push origin HEAD:master
+git push origin --tags
+"""
+}
+
+def fetchFromGithub(project) {
+  deleteDir()
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+@NonCPS
+def getNextVersion(version) {
+  String[] parts = version.split('\\.')
+  parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+}
+
