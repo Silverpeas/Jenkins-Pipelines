@@ -12,81 +12,77 @@ node {
       def pom = readMavenPom()
       version = "${pom.properties['next.release']}-build${buildNumber}"
     }
-    stage('Silverpeas Core') {
+    stage('Build Silverpeas Core') {
       echo "Build ${version} of Silverpeas Core..."
       withMaven(jdk: java, maven: maven) {
-        // checkout the project
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Core'
-
-        buildMavenProject(version)
+        buildMavenProject('Silverpeas-Core', version)
         runSonarAnalysis()
-        deployMavenProject(nexusRepo)
       }
     }
-    stage('Silverpeas Components') {
+    stage('Build Silverpeas Components') {
       echo "Build ${version} of Silverpeas Components..."
       withMaven(jdk: java, maven: maven) {
-        // checkout the project
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Components'
-
-        buildMavenProject(version)
+        buildMavenProject('Silverpeas-Components', version)
         runSonarAnalysis()
-        deployMavenProject(nexusRepo)
       }
     }
-    stage('Silverpeas Assembly') {
+    stage('Build Silverpeas Assembly') {
       echo "Build ${version} of Silverpeas Assembly..."
       withMaven(jdk: java, maven: maven) {
-        // checkout the project
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Assembly'
-
-        def pom = readMavenPom()
-        if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-          error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
+        buildMavenProject('Silverpeas-Assembly', version) { pom ->
+          if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
+            error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
+          }
+          if (pom.parent.version.contains('SNAPSHOT')) {
+            error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+          }
         }
-        if (pom.parent.version.contains('SNAPSHOT')) {
-          error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
-        }
-        buildAndDeployMavenProject(version)
       }
     }
-    stage('Silverpeas Setup') {
+    stage('Build Silverpeas Setup') {
       echo "Build ${version} of Silverpeas Setup..."
-      deleteDir()
-      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Setup'
-
-      buildAndDeployGradleProject(version)
+      buildGradleProject('Silverpeas-Setup', version)
     }
-    stage('Silverpeas Distribution') {
+    stage('Build Silverpeas Distribution') {
       echo "Build ${version} of Silverpeas Distribution..."
       withMaven(jdk: java, maven: maven) {
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Distribution'
-
-        buildAndDeployMavenProject(version)
+        buildMavenProject('Silverpeas-Distribution', version)
       }
     }
     /*stage('Silverpeas Looks') {
       echo "Build ${version} of Silverpeas Looks..."
       withMaven(jdk: java, maven: maven) {
-        deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Looks'
-
-        buildMavenProject(version)
-        deployMavenProject(version)
+        buildMavenProject('Silverpeas-Looks', version)
       }
     }*/
-    stage('Project Web Site') {
+    stage('Publish Project Web Site') {
       echo "Publish the web site with the new build version ${version}..."
-      deleteDir()
-      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
-      sh """
+      withMaven(jdk: java, maven: maven) {
+        deleteDir()
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
+        sh """
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
 mvn clean site-deploy
 """
+      }
+    }
+    stage('Deploy Build Version') {
+      withMaven(jdk: java, maven: maven) {
+        echo "Deploy Silverpeas Core ${version}..."
+        deployMavenProject('Silverpeas-Core', nexusRepo)
+
+        echo "Deploy Silverpeas Components ${version}..."
+        deployMavenProject('Silverpeas-Components', nexusRepo)
+
+        echo "Deploy Silverpeas Assembly ${version}..."
+        deployMavenProject('Silverpeas-Assembly', nexusRepo)
+
+        echo "Deploy Silverpeas Setup ${version}..."
+        deployGradleProject('Silverpeas-Setup', nexusRepo)
+
+        echo "Deploy Silverpeas Distribution ${version}..."
+        deployMavenProject('Silverpeas-Distribution', nexusRepo)
+      }
     }
   }
   step([$class: 'Mailer',
@@ -95,23 +91,32 @@ mvn clean site-deploy
         sendToIndividuals: true])
 }
 
-def buildAndDeployGradleProject(version) {
+def buildGradleProject(project, version, checker) {
+  fetchProjectFromGithub(project)
+  if (checker && checker instanceof Closure) {
+    checker()
+  }
   sh """
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
-sed -i -e 's/repositories\\/releases/repositories\\/builds/g' build.gradle
-./gradlew clean install publish
+./gradlew clean test install
 """
+  stash name: project, includes: '**/build.gradle, **/build/**/*'
 }
 
-def buildMavenProject(version) {
+def buildMavenProject(project, version, checker) {
+  fetchProjectFromGithub(project)
   def pom = readMavenPom()
   if (pom.parent != null && pom.parent.version.contains('SNAPSHOT')) {
     error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+  }
+  if (checker && checker instanceof Closure) {
+    checker(pom)
   }
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci
 """
+  stash name: project, includes: '**/pom.xml, **/target/**/*'
 }
 
 def runSonarAnalysis() {
@@ -120,14 +125,30 @@ def runSonarAnalysis() {
   }
 }
 
-def deployMavenProject(repo) {
+def deployGradleProject(project, repo) {
+  fetchProjectFromGithub(project)
+  unstash name: project
+  def target = fetchTargetRepo(repo)
+  sh """
+sed -i -e 's/repositories\\\\/releases/${target.replaceAll('/', '\\\\/')}/g' build.gradle
+./gradlew publish
+"""
+}
+
+def deployMavenProject(project, repo) {
+  fetchProjectFromGithub(project)
+  unstash name: project
   sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
 }
 
-def buildAndDeployMavenProject(version) {
-  sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true
-"""
+def fetchProjectFromGithub(project) {
+  deleteDir()
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+@NonCPS
+def fetchTargetRepo(nexusRepoUrl) {
+  def matcher = nexusRepoUrl =~ /(repositories\/.+)/
+  matcher ? matcher[0][1] : ''
 }
 
