@@ -175,6 +175,7 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 
 def buildMavenProjectSnapshot(nextVersion) {
   sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
 mvn clean deploy -Dmaven.test.skip=true -Pdeployment
@@ -187,6 +188,7 @@ def buildMavenProjectRelease(version) {
     error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
   }
   sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Dmaven.test.skip=true -Pdeployment -Prelease-sign-artifacts
 """

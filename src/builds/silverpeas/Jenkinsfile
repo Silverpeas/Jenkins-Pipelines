@@ -10,6 +10,9 @@ node {
     def version
     def parentVersion
     stage('Preparation') {
+      if (!params.BRANCH) {
+        params.BRANCH = 'master'
+      }
       def buildNumber = (new Date()).format('yyMMdd')
       echo "Prepare the build ${buildNumber} of Silverpeas..."
       deleteDir()
@@ -114,25 +117,26 @@ def fetchFromGithub(project) {
   sh "git checkout ${params.BRANCH}"
 }
 
-def buildGradleProject(params) {
-  fetchFromGithub(params.project)
+def buildGradleProject(args) {
+  fetchFromGithub(args.project)
   sh """
-sed -i -e "s/version = '.\\+'/version = '${params.version}'/g" build.gradle
+sed -i -e "s/version = '.\\+'/version = '${args.version}'/g" build.gradle
 ./gradlew clean test install
 """
-  stash name: params.project, includes: '**/build.gradle, **/build/**/*'
+  stash name: args.project, includes: '**/build.gradle, **/build/**/*'
 }
 
-def buildMavenProject(params) {
-  fetchFromGithub(params.project)
+def buildMavenProject(args) {
+  fetchFromGithub(args.project)
   def pom = readMavenPom()
-  if (pom.parent && params.parentVersion && pom.parent.version != params.parentVersion) {
+  if (pom.parent && !pom.parent.version.matches(/[0-9.]+/) && args.parentVersion && pom.parent.version != args.parentVersion) {
     sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${params.parentVersion}
-git commit -am "Update parent POM to version ${params.parentVersion}
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${args.parentVersion}
+git commit -am "Update parent POM to version ${args.parentVersion}"
+git push origin HEAD:${params.BRANCH}
 """
   }
-  if (params.project == 'Silverpeas-Assembly') {
+  if (args.project == 'Silverpeas-Assembly') {
     if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
       error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
     }
@@ -142,15 +146,18 @@ git commit -am "Update parent POM to version ${params.parentVersion}
   }
 
   sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${params.version}
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${args.version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}
 mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci
 """
-  stash name: params.project, includes: '**/pom.xml, **/target/**/*'
+  stash name: args.project, includes: '**/pom.xml, **/target/**/*'
 }
 
 def runSonarAnalysis() {
-  withSonarQubeEnv {
-    sh "mvn ${SONAR_MAVEN_GOAL} -Dsonar.login=${SONAR_AUTH_TOKEN} -Dsonar.host.url=${SONAR_HOST_URL}"
+  if (params.BRANCH == 'master') {
+    withSonarQubeEnv {
+      sh "mvn ${SONAR_MAVEN_GOAL} -Dsonar.login=${SONAR_AUTH_TOKEN} -Dsonar.host.url=${SONAR_HOST_URL}"
+    }
   }
 }
 
