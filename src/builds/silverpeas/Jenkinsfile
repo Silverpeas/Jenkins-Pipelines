@@ -14,17 +14,21 @@ node {
         params.BRANCH = 'master'
       }
       def buildNumber = (new Date()).format('yyMMdd')
-      echo "Prepare the build ${buildNumber} of Silverpeas..."
+      echo "Prepare the build ${buildNumber} of Silverpeas from ${params.BRANCH}..."
       deleteDir()
-      sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/master/pom.xml"
+      sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${params.BRANCH}/pom.xml"
       def pom = readMavenPom()
       version = "${pom.properties['next.release']}-build${buildNumber}"
-      copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
-          filter: 'org/silverpeas/silverpeas-project/*-build*/*.pom',
-          flatten: true
-      def files = findFiles glob: '*.pom'
-      pom = readMavenPom file: files[0].path
-      parentVersion = pom.version
+      if (params.BRANCH == 'master') {
+        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
+            filter: 'org/silverpeas/silverpeas-project/*-build*/*.pom',
+            flatten: true
+        def files = findFiles glob: '*.pom'
+        pom = readMavenPom file: files[0].path
+        parentVersion = pom.version
+      } else {
+       parentVersion = pom.parent.version
+      }
     }
     stage('Build Silverpeas Core') {
       echo "Build ${version} of Silverpeas Core..."
