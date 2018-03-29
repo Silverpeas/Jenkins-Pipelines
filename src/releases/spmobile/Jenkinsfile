@@ -40,7 +40,7 @@ node {
 def releaseVersion(version) {
   echo "-> Release version ${version}"
   sh """
-sed -i -e "s/<core.version>[0-9a-z\\-.]\\+/<core.version>${version}/g" pom.xml
+sed -i -e "s/<core.version>[0-9a-z.\\-]\\+/<core.version>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -Djava.awt.headless=true
 git commit -am "Release of ${version}"
