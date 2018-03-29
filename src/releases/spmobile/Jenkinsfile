@@ -26,8 +26,16 @@ node {
       def files = findFiles glob: '*.pom'
       pom = readMavenPom file: files[0].path
       def silverpeasVersion = pom.version
+      copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
+          filter: 'org/silverpeas/silverpeas-project/*-build*/*.pom',
+          flatten: true
+      files = findFiles glob: '*.pom'
+      pom = readMavenPom file: files[0].path
+      def parentVersion = pom.version
       withMaven(jdk: java, maven: maven) {
-        prepareNextVersion(nextversion, silverpeasVersion)
+        prepareNextVersion version: nextversion,
+            silverpeas: silverpeasVersion,
+            parent: parentVersion
       }
     }
   }
@@ -48,14 +56,15 @@ git tag ${version}
 """
 }
 
-def prepareNextVersion(nextversion, silverpeasVersion) {
-  echo "-> Prepare Next Snapshot version ${nextversion}"
+def prepareNextVersion(args) {
+  echo "-> Prepare Next Snapshot version ${args.version}"
   sh """
-sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
-sed -i -e "s/<core.version>[0-9.]\\+/<core.version>${silverpeasVersion}/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${args.parent}
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${args.version}/g" pom.xml
+sed -i -e "s/<core.version>[0-9.]\\+/<core.version>${args.silverpeas}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}-SNAPSHOT
 mvn clean install -Djava.awt.headless=true
-git commit -am "Prepare for next development iteration of next version ${nextversion}"
+git commit -am "Prepare for next development iteration of next version ${args.version}"
 git push origin HEAD:master
 git push origin --tags
 """
