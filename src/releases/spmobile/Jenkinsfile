@@ -1,0 +1,74 @@
+node {
+  catchError {
+    def maven = 'Maven 3.3'
+    def java = 'Java Oracle 8'
+    def version
+    def nextversion
+    stage('Preparation') {
+      echo "Prepare the release of Silverpeas Project (and the dependencies definitions)..."
+      deleteDir()
+      fetchFromGithub('silverpeasmobile')
+      def pom = readMavenPom()
+      version = pom.properties['next.release']
+      nextversion = getNextVersion(version)
+    }
+    stage('Silverpeas Mobile Release') {
+      echo "Release Silverpeas Mobile ${version}..."
+      withMaven(jdk: java, maven: maven) {
+        releaseVersion(version)
+      }
+    }
+    stage('Silverpeas Mobile next snapshot') {
+      echo "Prepare Next Snapshot Version of Silverpeas Mobile: ${nextversion}..."
+      copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
+          filter: 'org/silverpeas/core/*-build*/*.pom',
+          flatten: true
+      def files = findFiles glob: '*.pom'
+      pom = readMavenPom file: files[0].path
+      def silverpeasVersion = pom.version
+      withMaven(jdk: java, maven: maven) {
+        prepareNextVersion(nextversion, silverpeasVersion)
+      }
+    }
+  }
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals: true])
+}
+
+def releaseVersion(version) {
+  echo "-> Release version ${version}"
+  sh """
+sed -i -e "s/<core.version>[0-9a-z\\-.]\\+/<core.version>${version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean deploy -Djava.awt.headless=true
+git commit -am "Release of ${version}"
+git tag ${version}
+"""
+}
+
+def prepareNextVersion(nextversion, silverpeasVersion) {
+  echo "-> Prepare Next Snapshot version ${nextversion}"
+  sh """
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
+sed -i -e "s/<core.version>[0-9.]\\+/<core.version>${silverpeasVersion}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
+mvn clean install -Djava.awt.headless=true
+git commit -am "Prepare for next development iteration of next version ${nextversion}"
+git push origin HEAD:master
+git push origin --tags
+"""
+}
+
+def fetchFromGithub(project) {
+  deleteDir()
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+@NonCPS
+def getNextVersion(version) {
+  String[] parts = version.split('\\.')
+  parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+}
+
