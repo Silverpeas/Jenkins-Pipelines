@@ -76,6 +76,14 @@ node {
             parentVersion: parentVersion
       }
     }
+    stage('Silverpeas Mobile') {
+      echo "Build ${version} of Silverpeas Mobile..."
+      withMaven(jdk: java, maven: maven) {
+        buildMavenProject project: 'silverpeasmobile',
+            version: version,
+            parentVersion: parentVersion
+      }
+    }
     stage('Publish Project Web Site') {
       // publish the project web site only for the master branch
       if (params.BRANCH == 'master') {
@@ -109,6 +117,9 @@ mvn clean site-deploy
 
         echo "Deploy Silverpeas Looks ${version}"
         deployMavenProject('Silverpeas-Looks', nexusRepo)
+
+        echo "Deploy Silverpeas Mobile ${version}"
+        deployMavenProject('silverpeasmobile', nexusRepo)
       }
     }
   }
