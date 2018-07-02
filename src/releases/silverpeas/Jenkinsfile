@@ -100,6 +100,19 @@ git commit -am "Prepare the release of ${version}"
         prepareNextSnapshotVersion(commit, version)
       }
     }
+    stage('Silverpeas Mobile') {
+      echo "Release Silverpeas Mobile ${version}..."
+      withMaven(jdk: java, maven: maven) {
+        def commit =
+            getCommitHash("${nexusRepo}/org/silverpeas/components/mobile/silverpeas-mobile-configuration/${params.BUILD_VERSION}/mobile-configuration-${params.BUILD_VERSION}.jar")
+
+        deleteDir()
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/silverpeasmobile'
+
+        releaseProject(commit, version)
+        prepareNextSnapshotVersion(commit, version)
+      }
+    }
     stage('Silverpeas Izpack Installer') {
       if (!isMinor(version)) {
         echo "Generate the Izpack installer for Silverpeas ${version}"
@@ -175,10 +188,10 @@ sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 
 def buildMavenProjectSnapshot(nextVersion) {
   sh """
-sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${nextVersion}-SNAPSHOT/g" pom.xml
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
-mvn clean deploy -Dmaven.test.skip=true -Pdeployment
+mvn clean install -Dmaven.test.skip=true -Pdeployment
 """
 }
 
