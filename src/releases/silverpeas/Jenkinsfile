@@ -104,7 +104,7 @@ git commit -am "Prepare the release of ${version}"
       echo "Release Silverpeas Mobile ${version}..."
       withMaven(jdk: java, maven: maven) {
         def commit =
-            getCommitHash("${nexusRepo}/org/silverpeas/components/mobile/silverpeas-mobile-configuration/${params.BUILD_VERSION}/mobile-configuration-${params.BUILD_VERSION}.jar")
+            getCommitHash("${nexusRepo}/org/silverpeas/components/mobile/silverpeas-mobile-configuration/${params.BUILD_VERSION}/silverpeas-mobile-configuration-${params.BUILD_VERSION}.jar")
 
         deleteDir()
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/silverpeasmobile'
