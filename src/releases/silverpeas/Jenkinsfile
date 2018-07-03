@@ -4,7 +4,7 @@
  */
 node {
   catchError {
-    def maven = 'Maven 3.3'
+    def maven = 'Maven 3.5'
     def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def wildflyVersion = '10.1.0'
@@ -12,6 +12,7 @@ node {
     stage('Preparation') {
       version = getVersionNumber(params.BUILD_VERSION)
       echo "Prepare the release of Silverpeas ${version}..."
+
     }
     stage('Silverpeas Core') {
       echo "Release Silverpeas Core ${version}..."
@@ -114,20 +115,29 @@ git commit -am "Prepare the release of ${version}"
       }
     }
     stage('Silverpeas Izpack Installer') {
-      if (!isMinor(version)) {
-        echo "Generate the Izpack installer for Silverpeas ${version}"
-        withMaven(jdk: java, maven: maven) {
-          deleteDir()
-          git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
-
-          sh """
-sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
+      echo "Generate the Izpack installer for Silverpeas ${version}"
+      withMaven(jdk: java, maven: maven) {
+        deleteDir()
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
+        def branch = getMainBranch(version)
+        sh "git checkout ${branch}"
+        def pom = readMavenPom()
+        if (pom.parent.version.contains('build') || pom.parent.version.contains('SNAPSHOT')) {
+          error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
+        }
+        sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean install
 git commit -am "Build and deliver the Izpack installer for Silverpeas ${version}"
 git tag ${version}
 git push origin HEAD:master
 git push --tags
+"""
+        if (!isMinor(version)) {
+          sh """
+git checkout -b ${version}.x
+git commit -am "Prepare branch ${version}.x for minor versions"
+git push origin ${version}.x
 """
         }
       }
@@ -171,6 +181,25 @@ git push --tags
 git commit -am "Update Silverpeas Docker image version ${version}"
 git push origin HEAD:master
 """
+    }
+    stage('Publish Project Web Site') {
+      echo "Publish the web site with the new build version ${version}..."
+      copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
+          filter: "org/silverpeas/core/*-build*/*.pom",
+          flatten: true
+      def files = findFiles glob: '*.pom'
+      def pom = readMavenPom file: files[0].path
+      def lastBuildVersion = pom.version
+      deleteDir()
+      git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
+      withMaven(jdk: java, maven: maven) {
+          sh """
+sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${version}/g" pom.xml
+sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${version}/g" pom.xml
+sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${lastBuildVersion}/g" pom.xml
+mvn clean site-deploy
+"""
+      }
     }
   }
   step([$class: 'Mailer',

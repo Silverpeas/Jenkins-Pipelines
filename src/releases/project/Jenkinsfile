@@ -1,6 +1,6 @@
 node {
   catchError {
-    def maven = 'Maven 3.3'
+    def maven = 'Maven 3.5'
     def java = 'Java Oracle 8'
     def version
     def nextversion
