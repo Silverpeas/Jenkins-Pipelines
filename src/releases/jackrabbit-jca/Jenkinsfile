@@ -45,7 +45,7 @@ git checkout -b release-${version}
   sh """
 git commit -am "Release of ${version}"
 git tag ${version}
+git push origin HEAD:master
 git push origin --tags
-git push origin master
 """
 }
