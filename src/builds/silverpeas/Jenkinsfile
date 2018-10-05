@@ -167,7 +167,11 @@ git push origin HEAD:${params.BRANCH}
   sh """
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${args.version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}
+grep "6.0.[0-9]\\+-SNAPSHOT" pom.xml &>/dev/null
+test \$? -eq 0 && /usr/local/bin/ooserver start
 mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci
+/usr/local/bin/ooserver status | grep -i started &> /dev/null
+test \$? -eq 0 && /usr/local/bin/ooserver stop
 """
   stash name: args.project, includes: '**/pom.xml, **/target/**/*'
 }
