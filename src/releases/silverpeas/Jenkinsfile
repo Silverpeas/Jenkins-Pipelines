@@ -263,7 +263,7 @@ def prepareNextSnapshotVersion(commit, version) {
   if (fileExists('pom.xml')) {
     buildMavenProjectSnapshot(nextversion)
   } else {
-    buildGradleProject(nextversion)
+    buildGradleProject("${nextversion}-SNAPSHOT")
   }
   sh """
 git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
