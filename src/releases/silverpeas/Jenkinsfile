@@ -130,7 +130,7 @@ mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean install
 git commit -am "Build and deliver the Izpack installer for Silverpeas ${version}"
 git tag ${version}
-git push origin HEAD:master
+git push origin HEAD:${branch}
 git push --tags
 """
         if (!isMinor(version)) {
