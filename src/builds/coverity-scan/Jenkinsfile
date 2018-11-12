@@ -1,0 +1,63 @@
+node {
+  catchError {
+    def maven = 'Maven 3.5'
+    def java = 'Java Oracle 8'
+    def version
+    stage('Preparation') {
+      deleteDir()
+      copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
+          filter: 'org/silverpeas/core/*-build*/*.pom',
+          flatten: true
+      def files = findFiles glob: '*.pom'
+      def pom = readMavenPom file: files[0].path
+      version = pom.version
+      echo "Coverity Analysis will be applied on Silverpeas ${version}"
+    }
+    stage('Silverpeas Core Analysis') {
+      def project = 'Silverpeas-Core'
+      def commit = getBuildCommit 'org/silverpeas/core/silverpeas-core'
+      fetchFromGithub project, commit
+      withMaven(jdk: java, maven: maven) {
+        analyse project, version
+      }
+    }
+    stage('Silverpeas Components Analysis') {
+      def project = 'Silverpeas-Components'
+      def commit = getBuildCommit 'org/silverpeas/components/almanach/silverpeas-almanach'
+      fetchFromGithub project, commit
+      withMaven(jdk: java, maven: maven) {
+        analyse project, version
+      }
+    }
+  }
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org',
+        sendToIndividuals: true])
+}
+
+def getBuildCommit(artifactPath) {
+  deleteDir()
+  copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
+      filter: "${artifactPath}/*-build*/*build??????.jar",
+      flatten: true
+  def files = findFiles glob: '*.jar'
+  def manifest = readManifest file: files[0].path
+  manifest.main['Git-Commit']
+}
+
+def fetchFromGithub(project, commit) {
+  deleteDir()
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+  sh "git checkout ${commit}"
+}
+
+def analyse(project, version) {
+  sh """
+cov-build --dir cov-int --config ~/.config/coverity/coverity-cfg.xml mvn clean install -Dmaven.test.skip=true -Djava.awt.headless=true
+echo \$? -eq 0 && push-cov-analysis.sh ${project} ${version}
+"""
+  archiveArtifacts artifacts: '*-cov-int.tgz', onlyIfSuccessful: true
+}
+
+

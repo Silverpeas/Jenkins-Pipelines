@@ -64,8 +64,12 @@ git push origin HEAD:${mainbranch}
   }
   step([$class                  : 'Mailer',
         notifyEveryUnstableBuild: true,
-        recipients              : "miguel.moquillon@silverpeas.org",
+        recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, nicolas.eysseric@silverpeas.org",
         sendToIndividuals       : true])
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: false,
+        recipients: "sebastien.vuillet@silverpeas.org, david.lesimple@silverpeas.org, aurore.allibe@silverpeas.org",
+        sendToIndividuals: true])
 }
 
 def buildMavenProjectSnapshot(nextVersion) {

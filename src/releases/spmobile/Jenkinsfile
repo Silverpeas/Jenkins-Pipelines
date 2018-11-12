@@ -41,7 +41,11 @@ node {
   }
   step([$class: 'Mailer',
         notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, sebastien.vuillet@silverpeas.org",
+        sendToIndividuals: true])
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: false,
+        recipients: "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org",
         sendToIndividuals: true])
 }
 

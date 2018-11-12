@@ -204,7 +204,11 @@ mvn clean site-deploy
   }
   step([$class: 'Mailer',
         notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org",
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals: true])
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: false,
+        recipients: "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org",
         sendToIndividuals: true])
 }
 
