@@ -23,6 +23,7 @@ node {
         releaseVersion(version)
         prepareNextVersion(nextversion)
       }
+      pushToGithub('silverpeas-dependencies-bom')
     }
     stage('Silverpeas Test Dependencies') {
       echo "Release Silverpeas Test Dependencies ${version}..."
@@ -31,6 +32,7 @@ node {
         releaseVersion(version)
         prepareNextVersion(nextversion)
       }
+      pushToGithub('silverpeas-test-dependencies-bom')
     }
     stage('Silverpeas Project') {
       echo "Release ${version} Silverpeas Project ${version}..."
@@ -46,6 +48,7 @@ sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextve
 """
         prepareNextVersion(nextversion)
       }
+      pushToGithub('Silverpeas-Project')
     }
   }
   step([$class: 'Mailer',
@@ -71,14 +74,22 @@ sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
 mvn clean install -Djava.awt.headless=true
 git commit -am "Prepare for next development iteration of next version ${nextversion}"
-git push origin HEAD:master
-git push origin --tags
 """
 }
 
 def fetchFromGithub(project) {
   deleteDir()
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+def pushToGithub(project) {
+  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+    sh """
+git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:master
+git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} --tags
+"""
+  }
 }
 
 @NonCPS

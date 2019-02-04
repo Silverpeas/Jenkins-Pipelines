@@ -2,11 +2,12 @@ node {
   catchError {
     def maven = 'Maven 3.5'
     def java = 'Java Oracle 8'
+    def gitRepo = 'github.com/Silverpeas/Silverpeas-Jackrabbit-JCA'
     stage('Release') {
       withMaven(jdk: java, maven: maven) {
         // checkout the project
         deleteDir()
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: 'https://github.com/Silverpeas/Silverpeas-Jackrabbit-JCA.git'
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}"
 
         // identify the version
         def pom = readMavenPom()
@@ -16,7 +17,23 @@ node {
         }
 
         // release the project
-        releaseProject('master', version)
+        releaseProject(gitRepo, 'master', version)
+        echo "-> Release project to version ${version}"
+        withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          // we first change the Maven repo definition to use the repo dedicated to releases
+          // then we release the project and finally we tag it
+          sh """
+git checkout master
+git checkout -b release-${version}
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
+git commit -am "Release of ${version}"
+git tag ${version}
+git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
+git push https://${USER}:${PASSWORD}@${gitRepo} --tags
+"""
+        }
       }
     }
   }
@@ -26,26 +43,3 @@ node {
         sendToIndividuals: true])
 }
 
-def buildMavenProjectRelease(version) {
-  sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
-"""
-}
-
-def releaseProject(commit, version) {
-  echo "-> Release project to version ${version}"
-  // we first change the Maven repo definition to use the repo dedicated to releases
-  // then we release the project and finally we tag it
-  sh """
-git checkout ${commit}
-git checkout -b release-${version}
-"""
-  buildMavenProjectRelease(version)
-  sh """
-git commit -am "Release of ${version}"
-git tag ${version}
-git push origin HEAD:master
-git push origin --tags
-"""
-}

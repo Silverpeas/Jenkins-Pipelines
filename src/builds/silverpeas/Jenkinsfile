@@ -136,8 +136,14 @@ mvn clean site-deploy
 
 def fetchFromGithub(project) {
   deleteDir()
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
-  sh "git checkout ${params.BRANCH}"
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: params.BRANCH, poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+def pushToGithub(project, branch) {
+  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+    sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:${branch}"
+  }
 }
 
 def buildGradleProject(args) {
@@ -156,8 +162,8 @@ def buildMavenProject(args) {
     sh """
 mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${args.parentVersion}
 git commit -am "Update parent POM to version ${args.parentVersion}"
-git push origin HEAD:${params.BRANCH}
 """
+    pushToGithub(args.project, params.BRANCH)
   }
   if (args.project == 'Silverpeas-Assembly') {
     if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
