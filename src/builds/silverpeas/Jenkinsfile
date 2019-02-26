@@ -37,6 +37,7 @@ node {
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
+        waitForSonarAnalysis()
       }
     }
     stage('Build Silverpeas Components') {
@@ -46,6 +47,7 @@ node {
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
+        waitForSonarAnalysis()
       }
     }
     stage('Build Silverpeas Assembly') {
@@ -75,6 +77,7 @@ node {
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
+        waitForSonarAnalysis()
       }
     }
     stage('Silverpeas Mobile') {
@@ -83,20 +86,6 @@ node {
         buildMavenProject project: 'silverpeasmobile',
             version: version,
             parentVersion: parentVersion
-      }
-    }
-    stage('Publish Project Web Site') {
-      // publish the project web site only for the master branch
-      if (params.BRANCH == 'master') {
-        echo "Publish the web site with the new build version ${version}..."
-        withMaven(jdk: java, maven: maven) {
-          deleteDir()
-          fetchFromGithub('Silverpeas-Project-Web-Site')
-          sh """
-sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
-mvn clean site-deploy
-"""
-        }
       }
     }
     stage('Deploy Build Version') {
@@ -121,6 +110,20 @@ mvn clean site-deploy
 
         echo "Deploy Silverpeas Mobile ${version}"
         deployMavenProject('silverpeasmobile', nexusRepo)
+      }
+    }
+    stage('Publish Project Web Site') {
+      // publish the project web site only for the master branch
+      if (params.BRANCH == 'master') {
+        echo "Publish the web site with the new build version ${version}..."
+        withMaven(jdk: java, maven: maven) {
+          deleteDir()
+          fetchFromGithub('Silverpeas-Project-Web-Site')
+          sh """
+sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
+mvn clean site-deploy
+"""
+        }
       }
     }
   }
@@ -191,6 +194,18 @@ def runSonarAnalysis() {
   if (params.BRANCH == 'master') {
     withSonarQubeEnv {
       sh "mvn ${SONAR_MAVEN_GOAL} -Dsonar.login=${SONAR_AUTH_TOKEN} -Dsonar.host.url=${SONAR_HOST_URL}"
+    }
+  }
+}
+
+def waitForSonarAnalysis() {
+  if (params.BRANCH == 'master') {
+    timeout(time: 10, unit: 'MINUTES') {
+      // Just in case something goes wrong, pipeline will be killed after a timeout
+      def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
+      if (qg.status != 'OK' && qg.status != 'WARNING') {
+        error "Pipeline aborted due to quality gate failure: ${qg.status}"
+      }
     }
   }
 }
