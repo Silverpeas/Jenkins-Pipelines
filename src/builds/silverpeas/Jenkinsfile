@@ -161,20 +161,19 @@ sed -i -e "s/version = '.\\+'/version = '${args.version}'/g" build.gradle
 def buildMavenProject(args) {
   fetchFromGithub(args.project)
   def pom = readMavenPom()
-  if (pom.parent && !pom.parent.version.matches(/[0-9.]+/) && args.parentVersion && pom.parent.version != args.parentVersion) {
-    sh """
+  if (pom.parent) {
+    if (!pom.parent.version.matches(/[0-9.]+/) && args.parentVersion && pom.parent.version != args.parentVersion) {
+      sh """
 mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${args.parentVersion}
 git commit -am "Update parent POM to version ${args.parentVersion}"
 """
-    pushToGithub(args.project, params.BRANCH)
-  }
-  if (args.project == 'Silverpeas-Assembly') {
-    if (pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-      error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
-    }
-    if (pom.parent.version.contains('SNAPSHOT')) {
+      pushToGithub(args.project, params.BRANCH)
+    } else if (pom.parent.version.contains('SNAPSHOT')) {
       error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
     }
+  }
+  if (args.project == 'Silverpeas-Assembly' && pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
+    error ("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
   }
 
   sh """
