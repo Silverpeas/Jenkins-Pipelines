@@ -1,0 +1,50 @@
+import java.util.regex.Matcher
+
+node {
+  catchError {
+    def remoteUrl = 'https://github.com'
+    def remote = [:]
+    docker.image('silverpeas/silverbuild').inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        def payload = new groovy.json.JsonSlurper().parseText(params.payload)
+        remote.url = "${remoteUrl}/${payload.repository.owner.login}"
+        remote.repository = payload.repository.name
+        Matcher matcher = payload.ref =~ /^refs\\/heads\\/([a-zA-Z0-9.\-]+)$/
+        remote.branch = matcher.matches() ? matcher.group(1) : payload.ref
+        echo "Build of ${remote.url}/${remote.repository}:${remote.branch} asked!"
+      }
+      stage('Silverpeas Core') {
+        withRemoteSource(remote, 'Silverpeas-Core') {
+          sh """
+grep "6.0.[0-9]\\+-SNAPSHOT" pom.xml &>/dev/null
+test \$? -eq 0 && /usr/local/bin/ooserver start
+mvn clean install -Djava.awt.headless=true -Dcontext=ci
+/usr/local/bin/ooserver status | grep -i started &> /dev/null
+test \$? -eq 0 && /usr/local/bin/ooserver stop
+ """
+        }
+      }
+      stage('Silverpeas Components') {
+        withRemoteSource(remote, 'Silverpeas-Components') {
+          sh """
+mvn clean install -Djava.awt.headless=true -Dcontext=ci
+ """
+        }
+      }
+    }
+  }
+  step([$class                  : 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, nicolas.eysseric@silverpeas.org",
+        sendToIndividuals       : true])
+}
+
+def withRemoteSource(remote, repo, buildClosure) {
+  sh 'rm -rf *'
+  try {
+    git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: remote.branch, poll: false, url: "${remote.url}/${repo}"
+    buildClosure()
+  } catch (Exception e) {
+    echo "No branch ${remote.branch} found in ${repo}: nothing to do"
+  }
+}

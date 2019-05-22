@@ -1,3 +1,5 @@
+package push.project
+
 import java.util.regex.Matcher
 
 node {
@@ -14,21 +16,17 @@ node {
         remote.defaultBranch = params.branch
         echo "Build of ${remote.url}/${remote.repository}:${remote.branch} asked!"
       }
-      stage('Silverpeas Core') {
-        fetchRemoteSource(remote, 'Silverpeas-Core')
-        sh """
-grep "6.0.[0-9]\\+-SNAPSHOT" pom.xml &>/dev/null
-test \$? -eq 0 && /usr/local/bin/ooserver start
-mvn clean install -Djava.awt.headless=true -Dcontext=ci
-/usr/local/bin/ooserver status | grep -i started &> /dev/null
-test \$? -eq 0 && /usr/local/bin/ooserver stop
- """
+      stage('Silverpeas Dependencies') {
+        fetchRemoteSource(remote, 'silverpeas-dependencies-bom')
+        sh "mvn clean install"
       }
-      stage('Silverpeas Components') {
-        fetchRemoteSource(remote, 'Silverpeas-Components')
-        sh """
-mvn clean install -Djava.awt.headless=true -Dcontext=ci
- """
+      stage('Silverpeas Test Dependencies') {
+        fetchRemoteSource(remote, 'silverpeas-dependencies-bom')
+        sh "mvn clean install"
+      }
+      stage('Silverpeas Project') {
+        fetchRemoteSource(remote, 'silverpeas-project')
+        sh "mvn clean install"
       }
     }
   }
@@ -42,8 +40,10 @@ def fetchRemoteSource(remote, repo) {
   sh 'rm -rf *'
   try {
     git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: remote.branch, poll: false, url: "${remote.url}/${repo}"
+    return true
   } catch (Exception e) {
     // case the branch doesn't exist in the current remote repository.
     git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: remote.defaultBranch, poll: false, url: "${remote.url}/${repo}"
+    return false
   }
 }
