@@ -1,39 +1,33 @@
 node {
   catchError {
-    def maven = 'Maven 3.5'
-    def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
-    stage('Preparation') {
-      def buildNumber = (new Date()).format('yyMMdd')
-      echo "Prepare the build ${buildNumber} of Silverpeas Project (and the dependencies definitions)..."
-      deleteDir()
-      sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
-      def pom = readMavenPom()
-      version = "${pom.properties['next.release']}-build${buildNumber}"
-    }
-    stage('Silverpeas Dependencies') {
-      echo "Build ${version} of Silverpeas Dependencies..."
-      fetchFromGithub('silverpeas-dependencies-bom')
-      withMaven(jdk: java, maven: maven) {
+    docker.image('silverpeas/silverbuild')
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        def buildNumber = (new Date()).format('yyMMdd')
+        echo "Prepare the build ${buildNumber} of Silverpeas Project (and the dependencies definitions)..."
+        sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
+        def pom = readMavenPom()
+        version = "${pom.properties['next.release']}-build${buildNumber}"
+      }
+      stage('Silverpeas Dependencies') {
+        echo "Build ${version} of Silverpeas Dependencies..."
+        fetchFromGithub('silverpeas-dependencies-bom')
         def pom = readMavenPom()
         if (pom.properties['jcr.accesscontrol.version'].contains('SNAPSHOT')) {
           error "The Silverpeas JCR AccessControl dependency must be a stable or a build version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
         }
         buildAndDeploy(version, nexusRepo)
       }
-    }
-    stage('Silverpeas Test Dependencies') {
-      echo "Build ${version} of Silverpeas Test Dependencies..."
-      fetchFromGithub('silverpeas-test-dependencies-bom')
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Test Dependencies') {
+        echo "Build ${version} of Silverpeas Test Dependencies..."
+        fetchFromGithub('silverpeas-test-dependencies-bom')
         buildAndDeploy(version, nexusRepo)
       }
-    }
-    stage('Silverpeas Project') {
-      echo "Build ${version} of Silverpeas Project..."
-      fetchFromGithub('Silverpeas-Project')
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Project') {
+        echo "Build ${version} of Silverpeas Project..."
+        fetchFromGithub('Silverpeas-Project')
         sh """
 sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
 """
@@ -55,7 +49,7 @@ mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Djava.a
 }
 
 def fetchFromGithub(project) {
-  deleteDir()
+  sh "rm -rf *"
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 

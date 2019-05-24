@@ -4,92 +4,78 @@
  */
 node {
   catchError {
-    def maven = 'Maven 3.5'
-    def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     def parentVersion
-    stage('Preparation') {
-      if (!params.BRANCH) {
-        params.BRANCH = 'master'
+    docker.image('silverpeas/silverbuild')
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        if (!params.BRANCH) {
+          params.BRANCH = 'master'
+        }
+        def buildNumber = (new Date()).format('yyMMdd')
+        echo "Prepare the build ${buildNumber} of Silverpeas from ${params.BRANCH}..."
+        sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${params.BRANCH}/pom.xml"
+        def pom = readMavenPom()
+        version = "${pom.properties['next.release']}-build${buildNumber}"
+        if (params.BRANCH == 'master') {
+          copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
+              filter: 'org/silverpeas/silverpeas-project/*-build*/*.pom',
+              flatten: true
+          def files = findFiles glob: '*.pom'
+          pom = readMavenPom file: files[0].path
+          parentVersion = pom.version
+        } else {
+          parentVersion = pom.parent.version
+        }
       }
-      def buildNumber = (new Date()).format('yyMMdd')
-      echo "Prepare the build ${buildNumber} of Silverpeas from ${params.BRANCH}..."
-      deleteDir()
-      sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${params.BRANCH}/pom.xml"
-      def pom = readMavenPom()
-      version = "${pom.properties['next.release']}-build${buildNumber}"
-      if (params.BRANCH == 'master') {
-        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
-            filter: 'org/silverpeas/silverpeas-project/*-build*/*.pom',
-            flatten: true
-        def files = findFiles glob: '*.pom'
-        pom = readMavenPom file: files[0].path
-        parentVersion = pom.version
-      } else {
-       parentVersion = pom.parent.version
-      }
-    }
-    stage('Build Silverpeas Core') {
-      echo "Build ${version} of Silverpeas Core..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Build Silverpeas Core') {
+        echo "Build ${version} of Silverpeas Core..."
         buildMavenProject project: 'Silverpeas-Core',
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
         waitForSonarAnalysis()
       }
-    }
-    stage('Build Silverpeas Components') {
-      echo "Build ${version} of Silverpeas Components..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Build Silverpeas Components') {
+        echo "Build ${version} of Silverpeas Components..."
         buildMavenProject project: 'Silverpeas-Components',
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
         waitForSonarAnalysis()
       }
-    }
-    stage('Build Silverpeas Assembly') {
-      echo "Build ${version} of Silverpeas Assembly..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Build Silverpeas Assembly') {
+        echo "Build ${version} of Silverpeas Assembly..."
         buildMavenProject project: 'Silverpeas-Assembly',
             version: version,
             parentVersion: parentVersion
       }
-    }
-    stage('Build Silverpeas Setup') {
-      echo "Build ${version} of Silverpeas Setup..."
-      buildGradleProject project: 'Silverpeas-Setup',
-          version: version
-    }
-    stage('Build Silverpeas Distribution') {
-      echo "Build ${version} of Silverpeas Distribution..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Build Silverpeas Setup') {
+        echo "Build ${version} of Silverpeas Setup..."
+        buildGradleProject project: 'Silverpeas-Setup',
+            version: version
+      }
+      stage('Build Silverpeas Distribution') {
+        echo "Build ${version} of Silverpeas Distribution..."
         buildMavenProject project: 'Silverpeas-Distribution',
             version: version
       }
-    }
-    stage('Silverpeas Looks') {
-      echo "Build ${version} of Silverpeas Looks..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Looks') {
+        echo "Build ${version} of Silverpeas Looks..."
         buildMavenProject project: 'Silverpeas-Looks',
             version: version,
             parentVersion: parentVersion
         runSonarAnalysis()
         waitForSonarAnalysis()
       }
-    }
-    stage('Silverpeas Mobile') {
-      echo "Build ${version} of Silverpeas Mobile..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Mobile') {
+        echo "Build ${version} of Silverpeas Mobile..."
         buildMavenProject project: 'silverpeasmobile',
             version: version,
             parentVersion: parentVersion
       }
-    }
-    stage('Deploy Build Version') {
-      withMaven(jdk: java, maven: maven) {
+      stage('Deploy Build Version') {
         echo "Deploy Silverpeas Core ${version}..."
         deployMavenProject('Silverpeas-Core', nexusRepo)
 
@@ -111,13 +97,10 @@ node {
         echo "Deploy Silverpeas Mobile ${version}"
         deployMavenProject('silverpeasmobile', nexusRepo)
       }
-    }
-    stage('Publish Project Web Site') {
-      // publish the project web site only for the master branch
-      if (params.BRANCH == 'master') {
-        echo "Publish the web site with the new build version ${version}..."
-        withMaven(jdk: java, maven: maven) {
-          deleteDir()
+      stage('Publish Project Web Site') {
+        // publish the project web site only for the master branch
+        if (params.BRANCH == 'master') {
+          echo "Publish the web site with the new build version ${version}..."
           fetchFromGithub('Silverpeas-Project-Web-Site')
           sh """
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
@@ -138,7 +121,7 @@ mvn clean site-deploy
 }
 
 def fetchFromGithub(project) {
-  deleteDir()
+  sh "rm -rf *"
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: params.BRANCH, poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
