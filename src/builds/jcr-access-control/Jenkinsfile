@@ -1,0 +1,26 @@
+node {
+  catchError {
+    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def gitRepo = 'https://github.com/Silverpeas/Silverpeas-JCR-AccessControl.git'
+    docker.image("silverpeas/silverbuild")
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        def buildNumber = (new Date()).format('yyMMdd')
+        echo "Prepare the build ${buildNumber} of Silverpeas JCR Access Controller..."
+        // checkout the project
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "${gitRepo}"
+        def pom = readMavenPom()
+        def version = "${pom.properties['next.release']}-build${buildNumber}"
+        sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
+      }
+      stage('Build and Deploy') {
+        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Djava.awt.headless=true"
+      }
+    }
+  }
+step([$class                  : 'Mailer',
+      notifyEveryUnstableBuild: true,
+      recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+      sendToIndividuals       : true])
+}
+
