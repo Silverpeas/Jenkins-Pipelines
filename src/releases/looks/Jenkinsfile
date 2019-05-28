@@ -4,25 +4,24 @@
  */
 node {
   catchError {
-    def maven = 'Maven 3.5'
-    def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def gitRepo = 'github.com/Silverpeas/Silverpeas-Looks'
     def version
     def nextversion
     def mainbranch
-    stage('Preparation') {
-      version = getVersionNumber(params.BUILD_VERSION)
-      echo "Prepare the release of Silverpeas Looks ${version}..."
-      // Fetch the Git commit corresponding to the build number
-      sh "wget ${nexusRepo}/org/silverpeas/looks/${params.BUILD_VERSION}/looks-${params.BUILD_VERSION}.pom"
-      def pom = readMavenPom file: "looks-${params.BUILD_VERSION}.pom"
-      version = pom.properties['next.release']
-      deleteDir()
-    }
-    stage('Release') {
-      echo "Release of Silverpeas Looks ${version}..."
-      withMaven(jdk: java, maven: maven) {
+    docker.image("silverpeas/silverbuild")
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        version = getVersionNumber(params.BUILD_VERSION)
+        echo "Prepare the release of Silverpeas Looks ${version}..."
+        // Fetch the Git commit corresponding to the build number
+        sh "curl -fsSL ${nexusRepo}/org/silverpeas/looks/${params.BUILD_VERSION}/looks-${params.BUILD_VERSION}.pom"
+        def pom = readMavenPom file: "looks-${params.BUILD_VERSION}.pom"
+        version = pom.properties['next.release']
+        sh "rm -rf *"
+      }
+      stage('Release') {
+        echo "Release of Silverpeas Looks ${version}..."
         // Fetch the Git commit corresponding to the build number
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}"
         mainbranch = getMainBranch(version)
@@ -37,12 +36,10 @@ git push https://${USER}:${PASSWORD}@${gitRepo} --tags
         """
         }
       }
-    }
-    stage('Bug-fix branch') {
-      nextversion = getNextMinorVersion(version)
-      if (!isMinor(version)) {
-        echo "Create bug-fix branch ${version}.x..."
-        withMaven(jdk: java, maven: maven) {
+      stage('Bug-fix branch') {
+        nextversion = getNextMinorVersion(version)
+        if (!isMinor(version)) {
+          echo "Create bug-fix branch ${version}.x..."
           sh "git checkout -b ${version}.x"
           buildMavenProjectSnapshot(nextversion)
           withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
@@ -55,10 +52,8 @@ git checkout master
           nextversion = getNextMajorVersion(version)
         }
       }
-    }
-    stage('Next Development Version') {
-      echo "Prepare the next development version ${nextversion}-SNAPSHOT..."
-      withMaven(jdk: java, maven: maven) {
+      stage('Next Development Version') {
+        echo "Prepare the next development version ${nextversion}-SNAPSHOT..."
         buildMavenProjectSnapshot(nextversion)
         withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           sh """

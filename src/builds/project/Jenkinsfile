@@ -7,7 +7,7 @@ node {
       stage('Preparation') {
         def buildNumber = (new Date()).format('yyMMdd')
         echo "Prepare the build ${buildNumber} of Silverpeas Project (and the dependencies definitions)..."
-        sh "wget https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
+        sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
         def pom = readMavenPom()
         version = "${pom.properties['next.release']}-build${buildNumber}"
       }

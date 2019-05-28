@@ -4,103 +4,92 @@
  */
 node {
   catchError {
-    def maven = 'Maven 3.5'
-    def java = 'Java Oracle 8'
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def wildflyVersion = '10.1.0'
     def version
-    stage('Preparation') {
-      version = getVersionNumber(params.BUILD_VERSION)
-      echo "Prepare the release of Silverpeas ${version}..."
+    docker.image("silverpeas/silverbuild")
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
+        version = getVersionNumber(params.BUILD_VERSION)
+        echo "Prepare the release of Silverpeas ${version}..."
 
-    }
-    stage('Silverpeas Core') {
-      echo "Release Silverpeas Core ${version}..."
-      def project = 'Silverpeas-Core'
-      withMaven(jdk: java, maven: maven) {
+      }
+      stage('Silverpeas Core') {
+        echo "Release Silverpeas Core ${version}..."
+        def project = 'Silverpeas-Core'
         def commit =
             getCommitHash("${nexusRepo}/org/silverpeas/core/silverpeas-core-api/${params.BUILD_VERSION}/silverpeas-core-api-${params.BUILD_VERSION}.jar")
         fetchFromGithub(project)
         releaseProject(project, commit, version)
         prepareNextSnapshotVersion(project, commit, version)
       }
-    }
-    stage('Silverpeas Components') {
-      echo "Release Silverpeas Components ${version}..."
-      def project = 'Silverpeas-Components'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Components') {
+        echo "Release Silverpeas Components ${version}..."
+        def project = 'Silverpeas-Components'
         def commit =
             getCommitHash("${nexusRepo}/org/silverpeas/components/kmelia/silverpeas-kmelia/${params.BUILD_VERSION}/silverpeas-kmelia-${params.BUILD_VERSION}.jar")
         fetchFromGithub(project)
         releaseProject(project, commit, version)
         prepareNextSnapshotVersion(project, commit, version)
       }
-    }
-    stage('Silverpeas Assembly') {
-      echo "Release Silverpeas Assembly ${version}..."
-      def project = 'Silverpeas-Assembly'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Assembly') {
+        echo "Release Silverpeas Assembly ${version}..."
+        def project = 'Silverpeas-Assembly'
         fetchFromGithub(project)
 
         sh """
 git checkout -b pre-release-${version}
-wget ${nexusRepo}/org/silverpeas/silverpeas-assembly/${params.BUILD_VERSION}/silverpeas-assembly-${params.BUILD_VERSION}.pom -O pom.xml
+curl -fsSL -o pom.xml ${nexusRepo}/org/silverpeas/silverpeas-assembly/${
+          params.BUILD_VERSION
+        }/silverpeas-assembly-${params.BUILD_VERSION}.pom
 git commit -am "Prepare the release of ${version}"
 """
         // release the project
         def pom = readMavenPom()
         if (pom.properties['jackrabbit.version'].contains('build') || pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
-          error ("The Jackrabbit JCA dependency must be a stable version for this project to be released. Current version is ${pom.properties['jackrabbit.version']}")
+          error("The Jackrabbit JCA dependency must be a stable version for this project to be released. Current version is ${pom.properties['jackrabbit.version']}")
         }
         releaseProject(project, "pre-release-${version}", version)
         prepareNextSnapshotVersion(project, 'master', version)
       }
-    }
-    stage('Silverpeas Setup') {
-      echo "Release Silverpeas Setup ${version}..."
-      def project = 'Silverpeas-Setup'
-      def commit =
-          getCommitHash("${nexusRepo}/org/silverpeas/silverpeas-setup/${params.BUILD_VERSION}/silverpeas-setup-${params.BUILD_VERSION}.jar")
-      fetchFromGithub(project)
-      releaseProject(project, commit, version)
-      prepareNextSnapshotVersion(project, commit, version)
-    }
-    stage('Silverpeas Distribution') {
-      echo "Release Silverpeas Distribution ${version}..."
-      def project = 'Silverpeas-Distribution'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Setup') {
+        echo "Release Silverpeas Setup ${version}..."
+        def project = 'Silverpeas-Setup'
+        def commit =
+            getCommitHash("${nexusRepo}/org/silverpeas/silverpeas-setup/${params.BUILD_VERSION}/silverpeas-setup-${params.BUILD_VERSION}.jar")
+        fetchFromGithub(project)
+        releaseProject(project, commit, version)
+        prepareNextSnapshotVersion(project, commit, version)
+      }
+      stage('Silverpeas Distribution') {
+        echo "Release Silverpeas Distribution ${version}..."
+        def project = 'Silverpeas-Distribution'
         def commit = getDistribCommitHash(params.BUILD_VERSION, nexusRepo)
         fetchFromGithub(project)
         releaseProject(project, commit, version)
         prepareNextSnapshotVersion(project, commit, version)
       }
-    }
-    stage('Silverpeas Looks') {
-      echo "Release Silverpeas Looks ${version}..."
-      def project = 'Silverpeas-Looks'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Looks') {
+        echo "Release Silverpeas Looks ${version}..."
+        def project = 'Silverpeas-Looks'
         def commit =
             getCommitHash("${nexusRepo}/org/silverpeas/looks/aurora/silverpeas-aurora-configuration/${params.BUILD_VERSION}/silverpeas-aurora-configuration-${params.BUILD_VERSION}.jar")
         fetchFromGithub(project)
         releaseProject(project, commit, version)
         prepareNextSnapshotVersion(project, commit, version)
       }
-    }
-    stage('Silverpeas Mobile') {
-      echo "Release Silverpeas Mobile ${version}..."
-      def project = 'silverpeasmobile'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Mobile') {
+        echo "Release Silverpeas Mobile ${version}..."
+        def project = 'silverpeasmobile'
         def commit =
             getCommitHash("${nexusRepo}/org/silverpeas/components/mobile/silverpeas-mobile-configuration/${params.BUILD_VERSION}/silverpeas-mobile-configuration-${params.BUILD_VERSION}.jar")
         fetchFromGithub(project)
         releaseProject(project, commit, version)
         prepareNextSnapshotVersion(project, commit, version)
       }
-    }
-    stage('Silverpeas Izpack Installer') {
-      echo "Generate the Izpack installer for Silverpeas ${version}"
-      def project = 'Silverpeas-Izpack-Installer'
-      withMaven(jdk: java, maven: maven) {
+      stage('Silverpeas Izpack Installer') {
+        echo "Generate the Izpack installer for Silverpeas ${version}"
+        def project = 'Silverpeas-Izpack-Installer'
         fetchFromGithub(project)
         def branch = getMainBranch(version)
         sh "git checkout ${branch}"
@@ -126,13 +115,12 @@ git push ${repo} ${version}.x
           }
         }
       }
-    }
-    stage('Silverpeas Test Docker Image') {
-      echo "Generate a Test Docker image of Silverpeas ${version}"
-      def project = 'docker-silverpeas-test'
-      fetchFromGithub(project)
-      withGit(project) { repo ->
-        sh """
+      stage('Silverpeas Test Docker Image') {
+        echo "Generate a Test Docker image of Silverpeas ${version}"
+        def project = 'docker-silverpeas-test'
+        fetchFromGithub(project)
+        withGit(project) { repo ->
+          sh """
 sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${version}/g" Dockerfile
 sed -i -e "s/build=.\\+/build=1/g" Dockerfile
 git commit -am "Update Dockerfile for Silverpeas ${version}"
@@ -140,14 +128,14 @@ git tag ${version}
 git push ${repo} HEAD:master
 git push ${repo} --tags
 """
+        }
       }
-    }
-    stage('Silverpeas Docker Image') {
-      echo "Generate a Docker image of Silverpeas ${version}"
-      def project = 'docker-silverpeas-prod'
-      fetchFromGithub(project)
-      withGit(project) { repo ->
-        sh """
+      stage('Silverpeas Docker Image') {
+        echo "Generate a Docker image of Silverpeas ${version}"
+        def project = 'docker-silverpeas-prod'
+        fetchFromGithub(project)
+        withGit(project) { repo ->
+          sh """
 ./generate-dockerfile.sh ${version} ${wildflyVersion}
 git commit -am "Generate Dockerfile for Silverpeas ${version}"
 git tag ${version}
@@ -155,31 +143,30 @@ git push ${repo} HEAD:master
 git push ${repo} --tags
 ./generate-docker-library.sh > silverpeas
 """
-      }
-      stash includes: 'silverpeas', name: 'docker-library'
+        }
+        stash includes: 'silverpeas', name: 'docker-library'
 
-      fetchFromGithub('official-images')
-      dir('library') {
-        unstash 'docker-library'
-      }
-      withGit('official-images') { repo ->
-        sh """
+        fetchFromGithub('official-images')
+        dir('library') {
+          unstash 'docker-library'
+        }
+        withGit('official-images') { repo ->
+          sh """
 git commit -am "Update Silverpeas Docker image version ${version}"
 git push ${repo} HEAD:master
 """
+        }
       }
-    }
-    stage('Publish Project Web Site') {
-      echo "Publish the web site with the new build version ${version}..."
-      copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
-          filter: "org/silverpeas/core/*-build*/*.pom",
-          flatten: true
-      def files = findFiles glob: '*.pom'
-      def pom = readMavenPom file: files[0].path
-      def lastBuildVersion = pom.version
-      fetchFromGithub('Silverpeas-Project-Web-Site')
-      withMaven(jdk: java, maven: maven) {
-          sh """
+      stage('Publish Project Web Site') {
+        echo "Publish the web site with the new build version ${version}..."
+        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy',
+            filter: "org/silverpeas/core/*-build*/*.pom",
+            flatten: true
+        def files = findFiles glob: '*.pom'
+        def pom = readMavenPom file: files[0].path
+        def lastBuildVersion = pom.version
+        fetchFromGithub('Silverpeas-Project-Web-Site')
+        sh """
 sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${version}/g" pom.xml
 sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${version}/g" pom.xml
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${lastBuildVersion}/g" pom.xml
@@ -199,7 +186,7 @@ mvn clean site-deploy
 }
 
 def fetchFromGithub(project) {
-  deleteDir()
+  sh "rm -rf *"
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
@@ -301,14 +288,16 @@ git push ${repo} --tags
 
 def getCommitHash(artifactUrl) {
   String artifactName = getArtifactName(artifactUrl)
-  sh "wget ${artifactUrl}"
+  sh "curl -fsSL ${artifactUrl}"
   def manifest = readManifest file: "${artifactName}"
   manifest.main['Git-Commit']
 }
 
 def getDistribCommitHash(buildVersion, repo) {
   sh """
-wget ${repo}/org/silverpeas/silverpeas-distribution/${buildVersion}/silverpeas-distribution-${buildVersion}.zip
+curl -fsSL ${repo}/org/silverpeas/silverpeas-distribution/${buildVersion}/silverpeas-distribution-${
+    buildVersion
+  }.zip
 unzip -j silverpeas-distribution-${buildVersion}.zip silverpeas*/BUILD
 """
   def buildProps = readProperties file: 'BUILD'

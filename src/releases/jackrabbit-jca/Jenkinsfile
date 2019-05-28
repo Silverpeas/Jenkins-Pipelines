@@ -1,23 +1,19 @@
 node {
   catchError {
-    def maven = 'Maven 3.5'
-    def java = 'Java Oracle 8'
     def gitRepo = 'github.com/Silverpeas/Silverpeas-Jackrabbit-JCA'
-    stage('Release') {
-      withMaven(jdk: java, maven: maven) {
-        // checkout the project
-        deleteDir()
+    def version
+    docker.image("silverpeas/silverbuild")
+        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+      stage('Preparation') {
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}"
-
-        // identify the version
         def pom = readMavenPom()
-        def version = pom.properties['next.release']
+        version = pom.properties['next.release']
         if (pom.properties['silverpeas-jca.version'].contains('build') || pom.properties['silverpeas-jca.version'].contains('SNAPSHOT')) {
           error("The Silverpeas JCR AccessControl dependency must be a stable version for this project to be released. Current version is ${pom.properties['silverpeas-jca.version']}")
         }
-
+      }
+      stage('Release') {
         // release the project
-        releaseProject(gitRepo, 'master', version)
         echo "-> Release project to version ${version}"
         withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
