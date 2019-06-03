@@ -33,6 +33,13 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
 """
         buildAndDeploy(version, nexusRepo)
       }
+      stage('Archive Build Results') {
+        sh """
+mkdir -p target/org/silverpeas
+cp -ra /root/.m2/repository/org/silverpeas/* target/org/silverpeas/
+"""
+        archiveArtifacts artifacts: "target/org/silverpeas/**/${version}/*.pom", fingerprint: true
+      }
     }
   }
   step([$class: 'Mailer',
