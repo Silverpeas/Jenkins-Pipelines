@@ -32,10 +32,6 @@ node {
       }
       stage('Build Silverpeas Core') {
         echo "Build ${version} of Silverpeas Core..."
-        sh """
-pwd
-ls -la
-"""
         buildMavenProject(project: 'Silverpeas-Core',
             version: version,
             parentVersion: parentVersion) {
@@ -101,6 +97,16 @@ ls -la
 
         echo "Deploy Silverpeas Mobile ${version}"
         deployMavenProject('silverpeasmobile', nexusRepo)
+      }
+      stage('Archive Build Version') {
+        dir('Silverpeas-Core') {
+          def data = [
+              'parent': "${parentVersion}",
+              'version': "${version}",
+          ]
+          writeYaml file: 'target/build.yaml', data: data, charset: 'UTF-8'
+          archiveArtifacts artifacts: 'target/build.yaml', fingerprint: true
+        }
       }
       stage('Publish Project Web Site') {
         // publish the project web site only for the master branch
@@ -203,8 +209,6 @@ def runSonarAnalysis() {
 
 def deployGradleProject(project, repo) {
   dir(project) {
-    /*fetchFromGithub(project)
-  unstash name: project*/
     def target = fetchTargetRepo(repo)
     sh """
 sed -i -e "s/repositories\\/releases/${target.replaceAll('/', '\\\\/')}/g" build.gradle
@@ -214,8 +218,6 @@ sed -i -e "s/repositories\\/releases/${target.replaceAll('/', '\\\\/')}/g" build
 }
 
 def deployMavenProject(project, repo) {
-  /*fetchFromGithub(project)
-  unstash name: project*/
   dir(project) {
     sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
   }
