@@ -35,7 +35,7 @@ node {
         buildMavenProject(project: 'Silverpeas-Core',
             version: version,
             parentVersion: parentVersion) {
-          runSonarAnalysis()
+          runSonarAnalysis(it)
         }
       }
       stage('Build Silverpeas Components') {
@@ -43,7 +43,7 @@ node {
         buildMavenProject(project: 'Silverpeas-Components',
             version: version,
             parentVersion: parentVersion) {
-          runSonarAnalysis()
+          runSonarAnalysis(it)
         }
       }
       stage('Build Silverpeas Assembly') {
@@ -67,7 +67,7 @@ node {
         buildMavenProject(project: 'Silverpeas-Looks',
             version: version,
             parentVersion: parentVersion) {
-          runSonarAnalysis()
+          runSonarAnalysis(it)
         }
       }
       stage('Silverpeas Mobile') {
@@ -187,15 +187,20 @@ mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci
 test \$? -eq 0 && /usr/local/bin/ooserver stop
 """
     //stash name: args.project, includes: '**/pom.xml, **/target/**/*'
-    postbuild?.call()
+    postbuild?.call(args.project)
   }
 }
 
-def runSonarAnalysis() {
+def runSonarAnalysis(project) {
   // run sonarqube analysis only for the master branch
   if (params.BRANCH == 'master') {
     withSonarQubeEnv {
-      sh "mvn ${SONAR_MAVEN_GOAL} -Dsonar.login=${SONAR_AUTH_TOKEN} -Dsonar.host.url=${SONAR_HOST_URL}"
+      sh """
+mvn ${SONAR_MAVEN_GOAL} -Dsonar.projectKey=Silverpeas_${project} \\
+    -Dsonar.organization=silverpeas \\
+    -Dsonar.host.url=${SONAR_HOST_URL} \\
+    -Dsonar.login=${SONAR_AUTH_TOKEN}
+"""
     }
     timeout(time: 10, unit: 'MINUTES') {
       // Just in case something goes wrong, pipeline will be killed after a timeout
