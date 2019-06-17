@@ -100,11 +100,10 @@ node {
       }
       stage('Archive Build Version') {
         dir('Silverpeas-Core') {
-          def data = [
-              'parent': "${parentVersion}",
-              'version': "${version}",
-          ]
-          writeYaml file: 'target/build.yaml', data: data, charset: 'UTF-8'
+          sh """
+echo "parent: ${parentVersion}" > target/build.yaml
+echo "version: ${version}" >> target/build.yaml
+"""
           archiveArtifacts artifacts: 'target/build.yaml', fingerprint: true
         }
       }
@@ -133,10 +132,6 @@ mvn clean site-deploy
 
 def fetchFromGithub(project) {
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: params.BRANCH, poll: false, url: "https://github.com/Silverpeas/${project}"
-  sh """
-pwd
-ls -la
-"""
 }
 
 def pushToGithub(project, branch) {
