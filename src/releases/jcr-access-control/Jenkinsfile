@@ -16,7 +16,7 @@ node {
       stage('Release') {
         echo "Release of JCR Access Control ${version}..."
         // Fetch the Git commit corresponding to the build number
-        sh "curl -fsSL ${nexusRepo}/org/silverpeas/jcr/access-control/${params.BUILD_VERSION}/access-control-${params.BUILD_VERSION}.jar"
+        sh "curl -fsSL -o access-control-${params.BUILD_VERSION}.jar ${nexusRepo}/org/silverpeas/jcr/access-control/${params.BUILD_VERSION}/access-control-${params.BUILD_VERSION}.jar"
         def manifest = readManifest file: "${env.WORKSPACE}/access-control-${params.BUILD_VERSION}.jar"
         def commit = manifest.main['Git-Commit']
 

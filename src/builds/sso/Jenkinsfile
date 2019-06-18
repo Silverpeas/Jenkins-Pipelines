@@ -4,6 +4,7 @@ node {
     def gitRepo = 'https://github.com/Silverpeas/Silverpeas-Sso.git'
     def parentVersion
     def buildNumber
+    def version
     docker.image("silverpeas/silverbuild")
         .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
       stage('Preparation') {
@@ -20,7 +21,7 @@ node {
       stage('Checkout') {
         git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "${gitRepo}"
         def pom = readMavenPom()
-        def version = "${pom.properties['next.release']}-build${buildNumber}"
+        version = "${pom.properties['next.release']}-build${buildNumber}"
         sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
         if (pom.parent) {
           if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
@@ -39,6 +40,12 @@ git commit -am "Update parent POM to version ${parentVersion}"
       }
       stage('Build and Deploy') {
         sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+      }
+      stage('Archive Build Version') {
+        sh """
+echo "version: ${version}" > target/build.yaml
+"""
+        archiveArtifacts artifacts: 'target/build.yaml', fingerprint: true
       }
     }
   }

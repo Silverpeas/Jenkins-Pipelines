@@ -16,6 +16,12 @@ node {
       stage('Build and Deploy') {
         sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Djava.awt.headless=true"
       }
+      stage('Archive Build Version') {
+        sh """
+echo "version: ${version}" > target/build.yaml
+"""
+        archiveArtifacts artifacts: 'target/build.yaml', fingerprint: true
+      }
     }
   }
 step([$class                  : 'Mailer',

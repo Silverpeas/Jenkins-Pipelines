@@ -288,16 +288,17 @@ git push ${repo} --tags
 
 def getCommitHash(artifactUrl) {
   String artifactName = getArtifactName(artifactUrl)
-  sh "curl -fsSL ${artifactUrl}"
+  if (artifactName == null) {
+    error "Cannot figure out the artifact referred by ${artifactUrl}"
+  }
+  sh "curl -fsSL -o ${artifactName} ${artifactUrl}"
   def manifest = readManifest file: "${artifactName}"
   manifest.main['Git-Commit']
 }
 
 def getDistribCommitHash(buildVersion, repo) {
   sh """
-curl -fsSL ${repo}/org/silverpeas/silverpeas-distribution/${buildVersion}/silverpeas-distribution-${
-    buildVersion
-  }.zip
+curl -fsSL -o silverpeas-distribution-${buildVersion}.zip ${repo}/org/silverpeas/silverpeas-distribution/${buildVersion}/silverpeas-distribution-${buildVersion}.zip
 unzip -j silverpeas-distribution-${buildVersion}.zip silverpeas*/BUILD
 """
   def buildProps = readProperties file: 'BUILD'
