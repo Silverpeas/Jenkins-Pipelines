@@ -1,6 +1,7 @@
+package builds.upgrade
+
 import groovy.sql.Sql
 
-import java.sql.Driver
 import java.util.regex.Matcher
 
 node {
@@ -37,15 +38,16 @@ curl -fsSL -o ${silverpeas} ${fileRepo}/${silverpeas}
 unzip ${silverpeas}
 curl -fsSL -o ${wildfly} ${fileRepo}/${wildfly}
 unzip ${params.wildfly}
+cp conf/*.xml ${silverpeasHome}/conf/silverpeas/
 cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
 cp lib/*.jar /usr/lib/jvm/default-java/jre/lib/ext/
 """
       }
-      stage('Installation test with PostgreSQL database') {
+      stage('Upgrade test with PostgreSQL database') {
         withCredentials([usernamePassword(credentialsId: '77f54fe3-921f-4461-a70f-142122191933',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           def database = [
-              name    : dbConf.postgresql.inst,
+              name    : dbConf.postgresql.updt,
               type    : 'POSTGRESQL',
               host    : dbConf.postgresql.host,
               url     : dbConf.postgresql.url,
@@ -53,19 +55,17 @@ cp lib/*.jar /usr/lib/jvm/default-java/jre/lib/ext/
               password: $PASSWORD,
           ]
           generateConfigFileFor(database)
-          create(database)
           sh """
 SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" bin/silverpeas clean install
 """
           archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
-          delete(database)
         }
       }
-      stage('Installation test with MS-SQLServer database') {
+      stage('Upgrade test with MS-SQLServer database') {
         withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           def database = [
-              name    : dbConf.mssql.inst,
+              name    : dbConf.mssql.updt,
               type    : 'MSSQL',
               host    : dbConf.mssql.host,
               url     : dbConf.mssql.url,
@@ -73,19 +73,17 @@ SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" bin/
               password: $PASSWORD,
           ]
           generateConfigFileFor(database)
-          create(database)
           sh """
 SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" bin/silverpeas clean install
 """
           archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
-          delete(database)
         }
       }
-      stage('Installation test with Oracle database') {
+      stage('Upgrade test with Oracle database') {
         withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           def database = [
-              name    : dbConf.oracle.inst,
+              name    : dbConf.oracle.updt,
               type    : 'ORACLE',
               host    : dbConf.oracle.host,
               url     : dbConf.oracle.url,
@@ -93,12 +91,10 @@ SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" bin/
               password: $PASSWORD,
           ]
           generateConfigFileFor(database)
-          create(database)
           sh """
 SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" ${silverpeasHome}/bin/silverpeas clean install
 """
           archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
-          delete(database)
         }
       }
     }
@@ -107,42 +103,6 @@ SILVERPEAS_HOME="`pwd`/${silverpeasHome}" JBOSS_HOME="`pwd`/${wildflyHome}" ${si
         notifyEveryUnstableBuild: true,
         recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
         sendToIndividuals       : true])
-}
-
-def create(db) {
-  if (db.type != 'ORACLE') {
-    String url = db.type == db.url + (db.type == 'ORACLE' ? ":${db.name}" : '')
-    Sql sql = Sql.newInstance(url, db.user, db.password, db.driver)
-    sql.execute("create database ${db.name}")
-  }
-}
-
-def delete(db) {
-  String url = db.type == db.url + (db.type == 'ORACLE' ? ":${db.name}" : '')
-  Sql sql = Sql.newInstance(url, db.user, db.password, db.driver)
-  if (db.type != 'ORACLE') {
-    sql.execute("drop database ${db.name}")
-  } else {
-    sql.execute '''
-BEGIN
- --Drop Tables, index and constraints!
-    FOR c IN (SELECT object_name,
-                     object_type
-              FROM user_objects
-              WHERE object_type IN ('TABLE') AND object_name NOT LIKE '%$%') LOOP
-        EXECUTE IMMEDIATE 'DROP '
-                             || c.object_type || ' "'
-                             || c.object_name || '" CASCADE CONSTRAINTS';
-    END LOOP;
-    
- --Drop Sequences!
-  FOR i IN (SELECT us.sequence_name
-              FROM USER_SEQUENCES us) LOOP
-    EXECUTE IMMEDIATE 'drop sequence '|| i.sequence_name ||'';
-  END LOOP;
-END;
-        '''
-  }
 }
 
 def generateConfigFileFor(db) {
