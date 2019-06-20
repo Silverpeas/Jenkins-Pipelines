@@ -1,0 +1,182 @@
+import groovy.sql.Sql
+import java.util.regex.Matcher
+
+node {
+  catchError {
+    def silverpeasHome
+    def wildflyHome
+    def dbConf
+    def fileRepo = 'http://repository.silverpeas.org/files'
+    def mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def gitRepo = 'https://github.com/mmoqui/Silverpeas-installation-tests.git'
+    docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+      stage('Preparation') {
+        sh "rm -rf * ~/.gradle"
+
+        // figure out the last build version of Silverpeas
+        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true
+        def lastBuild = readYaml file: 'build.yaml'
+        def buildVersion = lastBuild.version
+
+        // figure out the wildfly and silverpeas distributions to use
+        def parentVersion = lastBuild.parent
+        sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
+        def pom = readMavenPom()
+        def wildfly = "wildfly-${pom.properties['wildfly.version']}.zip"
+        def silverpeas = silverpeasDistribMatching(buildVersion, wildfly)
+        silverpeasHome = silverpeas.substring(0, silverpeas.length() - 4)
+        wildflyHome = wildfly.substring(0, wildfly.length() - 4)
+
+        // fetch resources required by the test
+        git poll: false, url: "${gitRepo}"
+        dbConf = readYaml file: 'conf/database.yaml'
+        sh """
+curl -fsSL -o ${silverpeas} ${fileRepo}/${silverpeas}
+unzip ${silverpeas}
+curl -fsSL -o ${wildfly} ${fileRepo}/${wildfly}
+unzip ${wildfly}
+cp conf/*.xml ${silverpeasHome}/configuration/silverpeas/
+cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
+"""
+      }
+      stage('Installation test with PostgreSQL database') {
+        withCredentials([usernamePassword(credentialsId: '77f54fe3-921f-4461-a70f-142122191933',
+            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          try {
+            def database = [
+                name    : dbConf.postgresql.inst,
+                type    : 'POSTGRESQL',
+                host    : dbConf.postgresql.host,
+                url     : dbConf.postgresql.url,
+                driver  : dbConf.postgresql.driver,
+                user    : USER,
+                password: PASSWORD,
+            ]
+            generateConfigFile(silverpeasHome, database)
+            create(database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+          } finally {
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+            delete(database)
+          }
+        }
+      }
+      stage('Installation test with MS-SQLServer database') {
+        withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
+            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          try {
+            def database = [
+                name    : dbConf.mssql.inst,
+                type    : 'MSSQL',
+                host    : dbConf.mssql.host,
+                url     : dbConf.mssql.url,
+                driver  : dbConf.mssql.driver,
+                user    : USER,
+                password: PASSWORD,
+            ]
+            generateConfigFile(silverpeasHome, database)
+            create(database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          } finally {
+            delete(database)
+          }
+        }
+      }
+      stage('Installation test with Oracle database') {
+        withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',
+            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          try {
+            def database = [
+                name    : dbConf.oracle.inst,
+                type    : 'ORACLE',
+                host    : dbConf.oracle.host,
+                url     : dbConf.oracle.url,
+                driver  : dbConf.oracle.driver,
+                user    : USER,
+                password: PASSWORD,
+            ]
+            generateConfigFile(silverpeasHome, database)
+            create(database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          } finally {
+            delete(database)
+          }
+        }
+      }
+    }
+  }
+  step([$class                  : 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals       : true])
+}
+
+def runTest(context) {
+  echo "-> Run installation test"
+  sh """
+SILVERPEAS_HOME="`pwd`/${context.silverpeasHome}" JBOSS_HOME="`pwd`/${context.wildflyHome}" ${context.silverpeasHome}/bin/silverpeas clean install
+"""
+}
+
+def create(db) {
+  echo "-> Create database ${db.name}"
+  if (db.type != 'ORACLE') {
+    Sql sql = Sql.newInstance(db.url, db.user, db.password, db.driver)
+    sql.execute('create database ' + db.name)
+  }
+}
+
+def delete(db) {
+  echo "-> Drop database ${db.name}"
+  if (db.type != 'ORACLE') {
+    Sql sql = Sql.newInstance(db.url, db.user, db.password, db.driver)
+    sql.execute('drop database ' + db.name)
+  } else {
+    Sql sql = Sql.newInstance(db.url + ":${db.name}", db.user, db.password, db.driver)
+    sql.execute '''
+BEGIN
+ --Drop Tables, index and constraints!
+    FOR c IN (SELECT object_name,
+                     object_type
+              FROM user_objects
+              WHERE object_type IN ('TABLE') AND object_name NOT LIKE '%$%') LOOP
+        EXECUTE IMMEDIATE 'DROP '
+                             || c.object_type || ' "'
+                             || c.object_name || '" CASCADE CONSTRAINTS';
+    END LOOP;
+    
+ --Drop Sequences!
+  FOR i IN (SELECT us.sequence_name
+              FROM USER_SEQUENCES us) LOOP
+    EXECUTE IMMEDIATE 'drop sequence '|| i.sequence_name ||'';
+  END LOOP;
+END;
+        '''
+  }
+}
+
+def generateConfigFile(silverpeasHome, db) {
+  withCredentials([usernamePassword(credentialsId: 'c58d4674-64f5-47c0-8ab0-463140ff7314',
+      usernameVariable: 'DB_USER', passwordVariable: 'DB_PASSWORD')]) {
+    sh """
+rm -f ${silverpeasHome}/configuration/config.properties
+echo "DB_NAME=${db.name}" > ${silverpeasHome}/configuration/config.properties
+echo "DB_USER=${DB_USER}" >> ${silverpeasHome}/configuration/config.properties
+echo "DB_PASSWORD=${DB_PASSWORD}" >> ${silverpeasHome}/configuration/config.properties
+echo "DB_SERVERTYPE=${db.type}"  >> ${silverpeasHome}/configuration/config.properties
+echo "DB_SERVER=${db.host}" >> ${silverpeasHome}/configuration/config.properties
+"""
+  }
+}
+
+@NonCPS
+def silverpeasDistribMatching(version, wildfly) {
+  Matcher m = wildfly =~ /^wildfly-(\d+)\..+$/
+  if (!m.matches()) {
+    error "No Silverpeas distribution matching the Wildfly distribution ${wildfly}"
+  }
+  return "silverpeas-${version}-wildfly${m.group(1)}.zip"
+}
+

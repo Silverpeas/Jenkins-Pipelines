@@ -171,17 +171,19 @@ git commit -am "Update parent POM to version ${args.parentVersion}"
     if (args.project == 'Silverpeas-Assembly' && pom.properties['jackrabbit.version'].contains('SNAPSHOT')) {
       error("The Jackrabbit JCA dependency must be a stable or a build version for this project to be deployed. Current version is ${pom.properties['jackrabbit.version']}")
     }
-
     sh """
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${args.version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}
-grep "6.0.[0-9]\\+-SNAPSHOT" pom.xml &>/dev/null
-test \$? -eq 0 && /usr/local/bin/ooserver start
-mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci
-/usr/local/bin/ooserver status | grep -i started &> /dev/null
-test \$? -eq 0 && /usr/local/bin/ooserver stop
 """
-    //stash name: args.project, includes: '**/pom.xml, **/target/**/*'
+    if (args.version.startsWith('6.0')) {
+      sh """
+/usr/local/bin/ooserver start
+mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.test.skip=true
+/usr/local/bin/ooserver stop
+"""
+    } else {
+      sh "mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+    }
     postbuild?.call(args.project)
   }
 }
