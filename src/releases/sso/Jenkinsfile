@@ -1,0 +1,104 @@
+package releases.sso
+/*
+ * This pipeline requires the following build parameter to be set:
+ * BUILD_VERSION: the version number of an existing Silverpeas SSO build from which the release will be performed
+ */
+node {
+  catchError {
+    def gitRepo = 'github.com/Silverpeas/Silverpeas-Sso'
+    def version
+    def commit
+    docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+      stage('Preparation') {
+        copyArtifacts projectName: 'Silverpeas_SSO_AutoDeploy', flatten: true, selector: specific(params.BUILD)
+        def lastBuild = readYaml file: 'build.yaml'
+        version = lastBuild.release
+        commit = lastBuild.commit
+        if (lastBuild.parent.contains('build') || lastBuild.parent.contains('SNAPSHOT')) {
+          error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
+        }
+        echo "Prepare the release of Silverpeas SSO ${version}..."
+      }
+      stage('Checkout') {
+        fetchFromGithub(gitRepo)
+      }
+      stage('Release') {
+        releaseProject(gitRepo, commit, version)
+      }
+      stage('Next Snapshot Version') {
+        prepareNextSnapshotVersion(gitRepo, commit, version)
+      }
+    }
+  }
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals: true])
+}
+
+def fetchFromGithub(repo) {
+  sh "rm -rf *"
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${repo}"
+}
+
+def buildMavenProjectSnapshot(nextVersion) {
+  sh """
+sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
+mvn clean install -Dmaven.test.skip=true
+"""
+}
+
+def buildMavenProjectRelease(version) {
+  def pom = readMavenPom()
+  if (pom.properties['silverpeas.version'].contains('build') || pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
+    error "The version of Silverpeas must be a stable version for this project to be released. Current version is ${pom.properties['silverpeas.version']}"
+  }
+  sh """
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+mvn clean deploy -Dmaven.test.skip=true -Pdeployment -Prelease-sign-artifacts
+"""
+}
+
+def prepareNextSnapshotVersion(gitRepo, commit, version) {
+  echo "-> Prepare Next Snapshot version after ${version}"
+  def nextversion = getNextVersion(version)
+
+  echo "Prepare the next development iteration for ${nextversion}"
+  sh "git checkout master"
+  buildMavenProjectSnapshot(nextversion)
+  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+    sh """
+git commit -am "${version} has been released from commit ${commit} (build version ${
+      params.BUILD_VERSION
+    }). Prepare for development iteration of next version ${nextversion}"
+git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
+"""
+  }
+}
+
+def releaseProject(gitRepo, commit, version) {
+  echo "-> Release project to version ${version}"
+  // we first change the Maven repo definition to use the repo dedicated to releases
+  // then we release the project and finally we tag it
+  sh """
+git checkout ${commit}
+git checkout -b release-${version}
+"""
+  buildMavenProjectRelease(version)
+  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+    sh """
+git commit -am "Release of ${version}"
+git tag ${version}
+git push https://${USER}:${PASSWORD}@${gitRepo} --tags
+"""
+  }
+}
+
+@NonCPS
+def getNextVersion(version) {
+  String[] parts = version.split('\\.')
+  "${parts[0]}.${(parts[1] as Integer) + 1}"
+}
