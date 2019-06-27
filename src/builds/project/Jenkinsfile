@@ -2,14 +2,16 @@ node {
   catchError {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
+    def release
     docker.image('silverpeas/silverbuild')
-        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         def buildNumber = (new Date()).format('yyMMdd')
         echo "Prepare the build ${buildNumber} of Silverpeas Project (and the dependencies definitions)..."
         sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
         def pom = readMavenPom()
-        version = "${pom.properties['next.release']}-build${buildNumber}"
+        release = pom.properties['next.release']
+        version = "${release}-build${buildNumber}"
       }
       stage('Silverpeas Dependencies') {
         echo "Build ${version} of Silverpeas Dependencies..."
@@ -34,11 +36,9 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
         buildAndDeploy(version, nexusRepo)
       }
       stage('Archive Build Results') {
-        sh """
-mkdir -p target/org/silverpeas
-cp -ra /root/.m2/repository/org/silverpeas/* target/org/silverpeas/
-"""
-        archiveArtifacts artifacts: "target/org/silverpeas/**/${version}/*.pom", fingerprint: true
+        String artifact = 'target/build.yaml'
+        writeYaml file: artifact, data: ['version': version, 'release': release]
+        archiveArtifacts artifacts: artifact, fingerprint: true
       }
     }
   }

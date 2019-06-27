@@ -7,8 +7,10 @@ node {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     def parentVersion
+    def release
+    def commits = [:]
     docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}")
-        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         sh "rm -rf *"
         if (!params.BRANCH) {
@@ -17,13 +19,12 @@ node {
         def buildNumber = (new Date()).format('yyMMdd')
         sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${params.BRANCH}/pom.xml"
         def pom = readMavenPom()
-        version = "${pom.properties['next.release']}-build${buildNumber}"
+        release = pom.properties['next.release']
+        version = "${release}-build${buildNumber}"
         if (params.BRANCH == 'master') {
-          copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy',
-              flatten: true
-          def files = findFiles glob: '*.pom'
-          pom = readMavenPom file: files[0].path
-          parentVersion = pom.version
+          copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+          def parentBuild = readYaml file: 'build.yaml'
+          parentVersion = parentBuild.version
         } else {
           parentVersion = pom.parent.version
         }
@@ -78,44 +79,62 @@ node {
       }
       stage('Deploy Build Version') {
         echo "Deploy Silverpeas Core ${version}..."
-        deployMavenProject('Silverpeas-Core', nexusRepo)
+        deployMavenProject(project: 'Silverpeas-Core',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Components ${version}..."
-        deployMavenProject('Silverpeas-Components', nexusRepo)
+        deployMavenProject(project: 'Silverpeas-Components',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Assembly ${version}..."
-        deployMavenProject('Silverpeas-Assembly', nexusRepo)
+        deployMavenProject(project: 'Silverpeas-Assembly',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Setup ${version}..."
-        deployGradleProject('Silverpeas-Setup', nexusRepo)
+        deployGradleProject(project: 'Silverpeas-Setup',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Distribution ${version}..."
-        deployMavenProject('Silverpeas-Distribution', nexusRepo)
+        deployMavenProject(project: 'Silverpeas-Distribution',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Looks ${version}"
-        deployMavenProject('Silverpeas-Looks', nexusRepo)
+        deployMavenProject(project: 'Silverpeas-Looks',
+            repo: nexusRepo,
+            commits: commits)
 
         echo "Deploy Silverpeas Mobile ${version}"
-        deployMavenProject('silverpeasmobile', nexusRepo)
+        deployMavenProject(project: 'silverpeasmobile',
+            repo: nexusRepo,
+            commits: commits)
       }
       stage('Archive Build Version') {
-        dir('Silverpeas-Core') {
-          sh """
-echo "parent: ${parentVersion}" > target/build.yaml
-echo "version: ${version}" >> target/build.yaml
-"""
-          archiveArtifacts artifacts: 'target/build.yaml', fingerprint: true
-        }
+        sh "mkdir -p target"
+        final String artifact = 'target/build.yaml'
+        writeYaml file: artifact, data: ['version': version,
+                                         'parent': parentVersion,
+                                         'release': release,
+                                         'commits': commits]
+        archiveArtifacts artifacts: artifact, fingerprint: true
+        currentBuild.displayName = version
       }
       stage('Publish Project Web Site') {
         // publish the project web site only for the master branch
         if (params.BRANCH == 'master') {
           echo "Publish the web site with the new build version ${version}..."
           fetchFromGithub('Silverpeas-Project-Web-Site')
-          sh """
+          def status = sh script: """
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
 mvn clean site-deploy
-"""
+""", returnStatus: true
+          if (status != 0) {
+            echo "FAILED TO PUBLISH THE WEB SITE!"
+          }
         }
       }
     }
@@ -209,19 +228,23 @@ mvn ${SONAR_MAVEN_GOAL} -Dsonar.projectKey=Silverpeas_${project} \\
   }
 }
 
-def deployGradleProject(project, repo) {
-  dir(project) {
-    def target = fetchTargetRepo(repo)
+def deployGradleProject(args) {
+  dir(args.project) {
+    final String target = fetchTargetRepo(args.repo)
     sh """
 sed -i -e "s/repositories\\/releases/${target.replaceAll('/', '\\\\/')}/g" build.gradle
 ./gradlew publish
 """
+    final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+    args.commits[args.project] = commit.trim()
   }
 }
 
-def deployMavenProject(project, repo) {
-  dir(project) {
-    sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
+def deployMavenProject(args) {
+  dir(args.project) {
+    sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
+    final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+    args.commits[args.project] = commit.trim()
   }
 }
 

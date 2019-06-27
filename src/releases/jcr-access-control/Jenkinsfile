@@ -1,32 +1,34 @@
 /*
  * This pipeline requires the following build parameter to be set:
- * BUILD_VERSION: the version number of an existing Silverpeas build from which the release will be performed
+ * BUILD_VERSION: the version number of an existing Silverpeas JCR Access Controller build from which the release will be performed
  */
 node {
   catchError {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def gitRepo = 'github.com/Silverpeas/Silverpeas-JCR-AccessControl'
     def version
+    def commit
     docker.image("silverpeas/silverbuild")
-        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
-        version = getVersionNumber(params.BUILD_VERSION)
-        echo "Prepare the release of JCR Access Control ${version}..."
+        copyArtifacts projectName: 'Silverpeas_Jackrabbit-JCA_AutoDeploy', flatten: true, selector: specific(params.BUILD)
+        def lastBuild = readYaml file: 'build.yaml'
+        version = lastBuild.release
+        commit = lastBuild.commit
+        sh "rm -rf *"
+      }
+      stage('Checkout Build version to release') {
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}"
+        sh """
+git checkout ${commit}
+git checkout -b release-${version}
+"""
       }
       stage('Release') {
         echo "Release of JCR Access Control ${version}..."
-        // Fetch the Git commit corresponding to the build number
-        sh "curl -fsSL -o access-control-${params.BUILD_VERSION}.jar ${nexusRepo}/org/silverpeas/jcr/access-control/${params.BUILD_VERSION}/access-control-${params.BUILD_VERSION}.jar"
-        def manifest = readManifest file: "${env.WORKSPACE}/access-control-${params.BUILD_VERSION}.jar"
-        def commit = manifest.main['Git-Commit']
-
-        // checkout the project
-        sh "rm -rf *"
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}.git"
-
         // release the project
-        releaseProject(gitRepo, commit, version)
-        prepareNextSnapshotVersion(gitRepo, commit, version)
+        releaseProject gitRepo, commit, version
+        prepareNextSnapshotVersion gitRepo, commit, version
       }
     }
   }
@@ -53,15 +55,15 @@ mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
 
 def prepareNextSnapshotVersion(gitRepo, commit, version) {
   echo "-> Prepare Next Snapshot version after ${version}"
-  def nextversion = getNextVersion(version)
+  def nextVersion = getNextVersion(version)
 
-  echo "Prepare the next development iteration for ${nextversion}"
+  echo "Prepare the next development iteration for ${nextVersion}"
   sh "git checkout master"
-  buildMavenProjectSnapshot(nextversion)
+  buildMavenProjectSnapshot(nextVersion)
   withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
       usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
     sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
+git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextVersion}"
 git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
 """
   }
@@ -69,12 +71,6 @@ git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
 
 def releaseProject(gitRepo, commit, version) {
   echo "-> Release project to version ${version}"
-  // we first change the Maven repo definition to use the repo dedicated to releases
-  // then we release the project and finally we tag it
-  sh """
-git checkout ${commit}
-git checkout -b release-${version}
-"""
   buildMavenProjectRelease(version)
   withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
       usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {

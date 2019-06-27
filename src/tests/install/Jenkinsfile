@@ -42,21 +42,21 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
       stage('Installation test with PostgreSQL database') {
         withCredentials([usernamePassword(credentialsId: '77f54fe3-921f-4461-a70f-142122191933',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          def database = [
+              name    : dbConf.postgresql.inst,
+              type    : 'POSTGRESQL',
+              host    : dbConf.postgresql.host,
+              url     : dbConf.postgresql.url,
+              driver  : dbConf.postgresql.driver,
+              user    : USER,
+              password: PASSWORD,
+          ]
           try {
-            def database = [
-                name    : dbConf.postgresql.inst,
-                type    : 'POSTGRESQL',
-                host    : dbConf.postgresql.host,
-                url     : dbConf.postgresql.url,
-                driver  : dbConf.postgresql.driver,
-                user    : USER,
-                password: PASSWORD,
-            ]
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-          } finally {
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          } finally {
             delete(database)
           }
         }
@@ -64,16 +64,16 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
       stage('Installation test with MS-SQLServer database') {
         withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          def database = [
+              name    : dbConf.mssql.inst,
+              type    : 'MSSQL',
+              host    : dbConf.mssql.host,
+              url     : dbConf.mssql.url,
+              driver  : dbConf.mssql.driver,
+              user    : USER,
+              password: PASSWORD,
+          ]
           try {
-            def database = [
-                name    : dbConf.mssql.inst,
-                type    : 'MSSQL',
-                host    : dbConf.mssql.host,
-                url     : dbConf.mssql.url,
-                driver  : dbConf.mssql.driver,
-                user    : USER,
-                password: PASSWORD,
-            ]
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
@@ -86,16 +86,16 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
       stage('Installation test with Oracle database') {
         withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+          def database = [
+              name    : dbConf.oracle.inst,
+              type    : 'ORACLE',
+              host    : dbConf.oracle.host,
+              url     : dbConf.oracle.url,
+              driver  : dbConf.oracle.driver,
+              user    : USER,
+              password: PASSWORD,
+          ]
           try {
-            def database = [
-                name    : dbConf.oracle.inst,
-                type    : 'ORACLE',
-                host    : dbConf.oracle.host,
-                url     : dbConf.oracle.url,
-                driver  : dbConf.oracle.driver,
-                user    : USER,
-                password: PASSWORD,
-            ]
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome

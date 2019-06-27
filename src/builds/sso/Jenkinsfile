@@ -57,10 +57,9 @@ git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
         sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
       }
       stage('Archive Build Version') {
-        def manifest = readManifest file: "kerberos/kerberos-war/target/silverpeas-sso-kerberos-war-${version}.war"
-        def commit = manifest.main['Git-Commit']
+        final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
         String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version, 'commit': commit, 'parent': parentVersion, 'release': release]
+        writeYaml file: artifact, data: ['version': version, 'commit': commit.trim(), 'parent': parentVersion, 'release': release]
         archiveArtifacts artifacts: artifact, fingerprint: true
         currentBuild.displayName = version
       }

@@ -1,15 +1,15 @@
 node {
   catchError {
     def version
-    def nextversion
+    def nextVersion
     docker.image("silverpeas/silverbuild")
-        .inside('-u root -v $HOME/.m2/settings.xml:/root/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/root/.m2/settings-security.xml -v $HOME/.gitconfig:/root/.gitconfig -v $HOME/.ssh:/root/.ssh -v $HOME/.gnupg:/root/.gnupg') {
+        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         echo "Prepare the release of Silverpeas Project (and the dependencies definitions)..."
-        sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
-        def pom = readMavenPom()
-        version = pom.properties['next.release']
-        nextversion = getNextVersion(version)
+        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+        def parentBuild = readYaml file: 'build.yaml'
+        version = parentBuild.release
+        nextVersion = getNextVersion(parentBuild.release)
       }
       stage('Silverpeas Dependencies') {
         echo "Release Silverpeas Dependencies ${version}..."
@@ -19,14 +19,14 @@ node {
           error "The Silverpeas JCR AccessControl dependency must be a stable version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
         }
         releaseVersion(version)
-        prepareNextVersion(nextversion)
+        prepareNextVersion(nextVersion)
         pushToGithub('silverpeas-dependencies-bom')
       }
       stage('Silverpeas Test Dependencies') {
         echo "Release Silverpeas Test Dependencies ${version}..."
         fetchFromGithub('silverpeas-test-dependencies-bom')
         releaseVersion(version)
-        prepareNextVersion(nextversion)
+        prepareNextVersion(nextVersion)
         pushToGithub('silverpeas-test-dependencies-bom')
       }
       stage('Silverpeas Project') {
@@ -38,9 +38,9 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
         releaseVersion(version)
 
         sh """
-sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextversion}-SNAPSHOT/g" pom.xml
+sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextVersion}-SNAPSHOT/g" pom.xml
 """
-        prepareNextVersion(nextversion)
+        prepareNextVersion(nextVersion)
         pushToGithub('Silverpeas-Project')
       }
     }
