@@ -21,7 +21,7 @@ node {
         def pom = readMavenPom()
         release = pom.properties['next.release']
         version = "${release}-build${buildNumber}"
-        if (params.BRANCH == 'master') {
+        if (params.BRANCH == 'master' && (pom.parent.version.contains('build') || pom.parent.version.contains('SNAPSHOT'))) {
           copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
           def parentBuild = readYaml file: 'build.yaml'
           parentVersion = parentBuild.version
@@ -133,7 +133,14 @@ sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>
 mvn clean site-deploy
 """, returnStatus: true
           if (status != 0) {
-            echo "FAILED TO PUBLISH THE WEB SITE!"
+            emailext (
+                subject: "Silverpeas Web Site publishing failure!",
+                body: """
+I was unable to publish the Silverpeas Community Web Site to www.silverpeas.org!
+Please, consult the console log of the build ${currentBuild.displayName} of ${currentBuild.projectName}
+""",
+                to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+            )
           }
         }
       }

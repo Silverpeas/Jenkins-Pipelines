@@ -6,20 +6,31 @@ node {
   catchError {
     def wildflyVersion
     def buildToRelease
-    docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}")
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+    def parentVersion
+    def projectDefinitionRelease
+    docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD)
         buildToRelease = readYaml file: 'build.yaml'
-        def parentVersion = buildToRelease.parent
-        if (parentVersion == null || parentVersion.contains('build') || parentVersion.contains('SNAPSHOT')) {
-          error "The version of the parent POM must be a stable version for this project to be released. Current version is ${parentVersion}"
-        }
+        parentVersion = buildToRelease.parent
+        def branch = getMainBranch(buildToRelease)
+        projectDefinitionRelease = parentVersion != null && branch == 'master' && (parentVersion.contains('build') || parentVersion.contains('SNAPSHOT'))
         sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
         def pom = readMavenPom()
         wildflyVersion = pom.properties['wildfly.version']
         echo "Prepare the release of Silverpeas ${buildToRelease.release}..."
         sh 'rm -rf *'
+      }
+      stage('Silverpeas Project Definition') {
+        if (projectDefinitionRelease) {
+          echo "Silverpeas Project Definition for Silverpeas ${params.BUILD} not yet released. So release it"
+          build job: 'Silverpeas_Project_Definition_Release', propagate: true, wait: true
+          copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+          def parentBuild = readYaml file: 'build.yaml'
+          parentVersion = parentBuild.release
+        } else {
+          echo "Silverpeas Project Definition already in stable version in Silverpeas ${params.BUILD}"
+        }
       }
       stage('Silverpeas Core') {
         echo "Release Silverpeas Core ${buildToRelease.release}..."
@@ -27,7 +38,8 @@ node {
         fetchFromGithub project
         releaseProject project: project,
             commit: buildToRelease.commits[project],
-            version: buildToRelease.release
+            version: buildToRelease.release,
+            parent: parentVersion
         prepareNextSnapshotVersion project: project,
             commit: buildToRelease.commits[project],
             version: buildToRelease.release
@@ -38,7 +50,8 @@ node {
         fetchFromGithub project
         releaseProject project: project,
             commit: buildToRelease.commits[project],
-            version: buildToRelease.release
+            version: buildToRelease.release,
+            parent: parentVersion
         prepareNextSnapshotVersion project: project,
             commit: buildToRelease.commits[project],
             version: buildToRelease.release
@@ -54,7 +67,8 @@ node {
         }
         releaseProject project: project,
             commit: buildToRelease.commits[project],
-            version: buildToRelease.release
+            version: buildToRelease.release,
+            parent: parentVersion
         prepareNextSnapshotVersion project: project,
             commit: 'master',
             version: buildToRelease.release
@@ -87,7 +101,8 @@ node {
         fetchFromGithub project
         releaseProject project: project,
             commit: buildToRelease.commits[project],
-            version: buildToRelease.release
+            version: buildToRelease.release,
+            parent: parentVersion
         prepareNextSnapshotVersion project: project,
             commit: buildToRelease.commits[project],
             version: buildToRelease.release
@@ -98,7 +113,8 @@ node {
         fetchFromGithub project
         releaseProject project: project,
             commit: buildToRelease.commits[project],
-            version: buildToRelease.release
+            version: buildToRelease.release,
+            parent: parentVersion
         prepareNextSnapshotVersion project: project,
             commit: buildToRelease.commits[project],
             version: buildToRelease.release
@@ -109,12 +125,10 @@ node {
         fetchFromGithub project
         def branch = getMainBranch(buildToRelease.release)
         sh "git checkout ${branch}"
-        def pom = readMavenPom()
-        if (pom.parent.version.contains('build') || pom.parent.version.contains('SNAPSHOT')) {
-          error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
-        }
         withGit(project) { repo ->
           sh """
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
+git commit -am "Update parent POM to version ${parentVersion}"
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildToRelease.release}
 mvn clean install
 git commit -am "Build and deliver the Izpack installer for Silverpeas ${buildToRelease.release}"
@@ -131,6 +145,38 @@ git push ${repo} ${buildToRelease.release}.x
           }
         }
       }
+      stage('Silverpeas Dev Docker Image') {
+        def project = 'docker-silverpeas-dev'
+        def nextVersion = getNextVersion({buildToRelease.release})
+        echo "Tag the current Docker image template and generate it for the next version ${nextVersion}"
+        fetchFromGithub project
+        withGit(project) { repo ->
+          sh """
+git tag ${buildToRelease.release}
+sed -i -e "s/version=.\\+/version=${nextversion}/g" Dockerfile
+sed -i -e "s/build=.\\+/build=1/g" Dockerfile
+git commit -am "Update Dockerfile for Silverpeas ${nextVersion}"
+git push ${repo} HEAD:master
+git push ${repo} --tags
+"""
+        }
+      }
+      stage('Silverpeas Build Docker Image') {
+        def project = 'docker-silverpeas-build'
+        def nextVersion = getNextVersion({buildToRelease.release})
+        echo "Tag the current Docker image template and generate it for the next version ${nextVersion}"
+        fetchFromGithub project
+        withGit(project) { repo ->
+          sh """
+git tag ${buildToRelease.release}
+sed -i -e "s/version=.\\+/version=${nextversion}/g" Dockerfile
+sed -i -e "s/build=.\\+/build=1/g" Dockerfile
+git commit -am "Update Dockerfile for Silverpeas ${nextVersion}"
+git push ${repo} HEAD:master
+git push ${repo} --tags
+"""
+        }
+      }
       stage('Silverpeas Test Docker Image') {
         echo "Generate a Test Docker image of Silverpeas ${buildToRelease.release}"
         def project = 'docker-silverpeas-test'
@@ -138,6 +184,7 @@ git push ${repo} ${buildToRelease.release}.x
         withGit(project) { repo ->
           sh """
 sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${buildToRelease.release}/g" Dockerfile
+sed -i -e "s/ARG WILDFLY_VERSION=.\\\\+/ARG WILDFLY_VERSION=${wildflyVersion}/g" Dockerfile
 sed -i -e "s/build=.\\+/build=1/g" Dockerfile
 git commit -am "Update Dockerfile for Silverpeas ${buildToRelease.release}"
 git tag ${buildToRelease.release}
@@ -146,31 +193,48 @@ git push ${repo} --tags
 """
         }
       }
-      stage('Silverpeas Docker Image') {
-        echo "Generate a Docker image of Silverpeas ${buildToRelease.release}"
+      stage('Silverpeas Production-ready Docker Image') {
+        echo "Generate a production-ready Docker image of Silverpeas ${buildToRelease.release}"
         def project = 'docker-silverpeas-prod'
-        fetchFromGithub project
-        withGit(project) { repo ->
-          sh """
+        def dockerhub = 'official-images'
+        dir (project) {
+          echo "-> Generate the Docker image for Silverpeas ${buildToRelease.release}"
+          fetchFromGithub project
+          withGit(project) { repo ->
+            sh """
 ./generate-dockerfile.sh ${buildToRelease.release} ${wildflyVersion}
 git commit -am "Generate Dockerfile for Silverpeas ${buildToRelease.release}"
 git tag ${buildToRelease.release}
 git push ${repo} HEAD:master
 git push ${repo} --tags
-./generate-docker-library.sh > silverpeas
+./generate-docker-library.sh > ${env.WORKSPACE}/silverpeas
 """
+          }
         }
-        stash includes: 'silverpeas', name: 'docker-library'
 
-        fetchFromGithub'official-images'
-        dir('library') {
-          unstash 'docker-library'
-        }
-        withGit('official-images') { repo ->
-          sh """
-git commit -am "Update Silverpeas Docker image version ${buildToRelease.release}"
+        dir (dockerhub) {
+          echo "-> Update the official Docker images library with Silverpeas ${buildToRelease.release}"
+          fetchFromGithub dockerhub
+          withGit('official-images') { repo ->
+            sh """
+git remote add docker https://github.com/docker-library/official-images.git
+git pull docker master
 git push ${repo} HEAD:master
+git checkout -b silverpeas-${buildToRelease}
+cp ${env.WORKSPACE}/silverpeas library/
+git commit -am "Update Docker image for Silverpeas version ${buildToRelease.release}"
+git push ${repo} HEAD:silverpeas-${buildToRelease}
 """
+            emailext (
+                subject: "Production-ready Docker image built",
+                body: """
+The production-ready Docker image template of Silverpeas was built for the version ${buildToRelease.release}.
+The official DockerHub library was updated with it.
+You can then create a PR in https://github.com/docker-library/official-images to build the new image from the templace.
+""",
+                to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+            )
+          }
         }
       }
       stage('Publish Project Web Site') {
@@ -196,7 +260,7 @@ mvn clean site-deploy
 }
 
 def fetchFromGithub(project) {
-  sh "rm -rf *"
+  sh "rm -rf * .git*"
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
@@ -223,7 +287,14 @@ mvn clean install -Dmaven.test.skip=true -Pdeployment
 """
 }
 
-def buildMavenProjectRelease(version) {
+def buildMavenProjectRelease(version, parent = null) {
+  def pom = readMavenPom()
+  if (pom.parent && parent && pom.parent.version != parent) {
+    sh """
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parent}
+git commit -am "Update parent POM to version ${parent}"
+"""
+  }
   sh """
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
@@ -279,7 +350,7 @@ git checkout ${args.commit}
 git checkout -b release-${args.version}
 """
   if (fileExists('pom.xml')) {
-    buildMavenProjectRelease(args.version)
+    buildMavenProjectRelease(args.version, args.parent)
   } else {
     buildGradleProject(args.version)
   }
