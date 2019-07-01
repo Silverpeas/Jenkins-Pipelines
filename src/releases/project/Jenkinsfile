@@ -72,7 +72,7 @@ git commit -am "Prepare for next development iteration of next version ${nextver
 }
 
 def fetchFromGithub(project) {
-  sh "rm -rf *"
+  sh "rm -rf * .git*"
   git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
