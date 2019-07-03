@@ -131,7 +131,8 @@ node {
         writeYaml file: artifact, data: ['version': version,
                                          'parent': parentVersion,
                                          'release': release,
-                                         'commits': commits]
+                                         'commits': commits,
+                                         'tested': !params.SKIP_TEST]
         archiveArtifacts artifacts: artifact, fingerprint: true
         currentBuild.displayName = version
       }
@@ -150,14 +151,14 @@ mvn clean site-deploy
                   subject: "Silverpeas Web Site publishing failure!",
                   body: """
 I was unable to publish the Silverpeas Community Web Site to www.silverpeas.org!
-Please, consult the console log of the build ${currentBuild.displayName} of ${
-                    currentBuild.projectName
-                  }
+Please, consult the console log of the build ${currentBuild.displayName} of ${currentBuild.projectName}
 """,
                   to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
               )
             }
           }
+        } else {
+          echo 'Not main development branch: nothing to publish.'
         }
       }
     }
