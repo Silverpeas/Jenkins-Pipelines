@@ -224,7 +224,11 @@ mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.tes
 /usr/local/bin/ooserver stop
 """
     } else {
-      sh "mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+      if (params.SKIP_TEST) {
+        sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
+      } else {
+        sh "mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+      }
     }
     postbuild?.call(args.project)
   }
