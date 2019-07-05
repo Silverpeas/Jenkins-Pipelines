@@ -55,6 +55,7 @@ def releaseVersion(version) {
   echo "-> Release version ${version}"
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
 mvn clean deploy -Djava.awt.headless=true
 git commit -am "Release of ${version}"
 git tag ${version}
@@ -65,6 +66,7 @@ def prepareNextVersion(nextversion) {
   echo "-> Prepare Next Snapshot version ${nextversion}"
   sh """
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
+sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>HEAD/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
 mvn clean install -Djava.awt.headless=true
 git commit -am "Prepare for next development iteration of next version ${nextversion}"
