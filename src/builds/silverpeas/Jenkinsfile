@@ -1,6 +1,7 @@
 /*
  * This pipeline requires the following build parameter to be set:
  * BRANCH: the name of the Git branch from which the project has to be fetched and built.
+ * IMAGE_VERSION: the version of the Docker image to use for running the job
  */
 node {
   catchError {

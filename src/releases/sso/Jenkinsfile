@@ -10,7 +10,7 @@ node {
     def commit
     docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
-        copyArtifacts projectName: 'Silverpeas_SSO_AutoDeploy', flatten: true, selector: specific(params.BUILD)
+        copyArtifacts projectName: 'Silverpeas_SSO_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION)
         def lastBuild = readYaml file: 'build.yaml'
         version = lastBuild.release
         commit = lastBuild.commit
@@ -70,9 +70,7 @@ def prepareNextSnapshotVersion(gitRepo, commit, version) {
   withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
       usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
     sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${
-      params.BUILD_VERSION
-    }). Prepare for development iteration of next version ${nextversion}"
+git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
 git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
 """
   }

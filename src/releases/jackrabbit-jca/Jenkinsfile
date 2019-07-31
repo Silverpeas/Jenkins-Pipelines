@@ -5,7 +5,7 @@ node {
     def commit
     docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
-        copyArtifacts projectName: 'Silverpeas_Jackrabbit-JCA_AutoDeploy', flatten: true, selector: specific(params.BUILD)
+        copyArtifacts projectName: 'Silverpeas_Jackrabbit-JCA_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION)
         def lastBuild = readYaml file: 'build.yaml'
         version = lastBuild.release
         commit = lastBuild.commit
