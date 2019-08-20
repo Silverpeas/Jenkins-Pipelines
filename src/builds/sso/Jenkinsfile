@@ -27,31 +27,11 @@ node {
         def pom = readMavenPom()
         release = pom.properties['next.release']
         version = "${release}-build${buildNumber}"
+
+        updateIfNecessaryParentVersion(pom, parentVersion)
+        updateIfNecessarySilverpeasVersion(pom, silverpeasVersion)
+
         sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
-        if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
-          sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
-git commit -am "Update parent POM to version ${parentVersion}"
-"""
-          withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-              usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-            sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
-          }
-        } else if (pom.parent.version.contains('SNAPSHOT')) {
-          error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
-        }
-        if (!pom.properties['silverpeas.version'].matches(/[0-9.]+/) && pom.properties['silverpeas.version'] != silverpeasVersion) {
-          sh """
-sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
-git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
-"""
-          withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-              usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-            sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
-          }
-        } else if (pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
-          error "The dependency on Silverpeas must be at a stable or a build version for this project to be deployed. Current version is ${pom.properties['silverpeas.version']}"
-        }
       }
       stage('Build and Deploy') {
         sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
@@ -69,5 +49,35 @@ step([$class                  : 'Mailer',
       notifyEveryUnstableBuild: true,
       recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
       sendToIndividuals       : true])
+}
+
+def updateIfNecessaryParentVersion(pom, parentVersion) {
+  if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
+    sh """
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
+git commit -am "Update parent POM to version ${parentVersion}"
+"""
+    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
+    }
+  } else if (pom.parent.version.contains('SNAPSHOT')) {
+    error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+  }
+}
+
+def updateIfNecessarySilverpeasVersion(pom, silverpeasVersion) {
+  if (!pom.properties['silverpeas.version'].matches(/[0-9.]+/) && pom.properties['silverpeas.version'] != silverpeasVersion) {
+    sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
+git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
+"""
+    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
+    }
+  } else if (pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
+    error "The dependency on Silverpeas must be at a stable or a build version for this project to be deployed. Current version is ${pom.properties['silverpeas.version']}"
+  }
 }
 
