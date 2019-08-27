@@ -122,39 +122,12 @@ SILVERPEAS_HOME="`pwd`/${context.silverpeasHome}" JBOSS_HOME="`pwd`/${context.wi
 
 def create(db) {
   echo "-> Create database ${db.name}"
-  if (db.type != 'ORACLE') {
-    Sql sql = Sql.newInstance(db.url, db.user, db.password, db.driver)
-    sql.execute('create database ' + db.name)
-  }
+  sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U ${db.user} -P ${db.password}"
 }
 
 def delete(db) {
   echo "-> Drop database ${db.name}"
-  if (db.type != 'ORACLE') {
-    Sql sql = Sql.newInstance(db.url, db.user, db.password, db.driver)
-    sql.execute('drop database ' + db.name)
-  } else {
-    Sql sql = Sql.newInstance(db.url + ":${db.name}", db.user, db.password, db.driver)
-    sql.execute '''
-BEGIN
- --Drop Tables, index and constraints!
-    FOR c IN (SELECT object_name,
-                     object_type
-              FROM user_objects
-              WHERE object_type IN ('TABLE') AND object_name NOT LIKE '%$%') LOOP
-        EXECUTE IMMEDIATE 'DROP '
-                             || c.object_type || ' "'
-                             || c.object_name || '" CASCADE CONSTRAINTS';
-    END LOOP;
-    
- --Drop Sequences!
-  FOR i IN (SELECT us.sequence_name
-              FROM USER_SEQUENCES us) LOOP
-    EXECUTE IMMEDIATE 'drop sequence '|| i.sequence_name ||'';
-  END LOOP;
-END;
-        '''
-  }
+  sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U ${db.user} -P ${db.password}"
 }
 
 def generateConfigFile(silverpeasHome, db) {
