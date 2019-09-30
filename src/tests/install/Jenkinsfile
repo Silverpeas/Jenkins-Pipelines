@@ -55,8 +55,9 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
           } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-postgresql.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true
             delete(database)
           }
         }
@@ -77,8 +78,9 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
           } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-mssql.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
             delete(database)
           }
         }
@@ -99,8 +101,9 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
           } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-oracle.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true
             delete(database)
           }
         }

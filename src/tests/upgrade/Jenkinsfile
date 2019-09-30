@@ -49,9 +49,13 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
               user    : USER,
               password: PASSWORD
           ]
-          generateConfigFile(silverpeasHome, database)
-          runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-          archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          try {
+            generateConfigFile(silverpeasHome, database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+          } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-postgresql.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true
+          }
         }
       }
       stage('Upgrade test with MS-SQLServer database') {
@@ -65,9 +69,13 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
               user    : USER,
               password: PASSWORD
           ]
-          generateConfigFile(silverpeasHome, database)
-          runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-          archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          try {
+            generateConfigFile(silverpeasHome, database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+          } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-mssql.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
+          }
         }
       }
       stage('Installation test with Oracle database') {
@@ -81,9 +89,13 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
               user    : USER,
               password: PASSWORD
           ]
-          generateConfigFile(silverpeasHome, database)
-          runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
-          archiveArtifacts artifacts: "${silverpeasHome}/log/build-*.log", fingerprint: true
+          try {
+            generateConfigFile(silverpeasHome, database)
+            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+          } finally {
+            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-oracle.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true
+          }
         }
       }
     }
