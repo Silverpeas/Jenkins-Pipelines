@@ -31,28 +31,8 @@ node {
         echo "Parent version is ${parentVersion}"
         echo "Trigger build version ${version} of Silverpeas from ${params.BRANCH}..."
       }
-      stage('Checkout Silverpeas Core') {
-        fetchFromGithub 'Silverpeas-Core'
-      }
-      stage('Checkout Silverpeas Components') {
-        fetchFromGithub 'Silverpeas-Components'
-      }
-      stage('Checkout Silverpeas Assemby') {
-        fetchFromGithub 'Silverpeas-Assembly'
-      }
-      stage('Checkout Silverpeas Setup') {
-        fetchFromGithub 'Silverpeas-Setup'
-      }
-      stage('Checkout Silverpeas Distribution') {
-        fetchFromGithub 'Silverpeas-Distribution'
-      }
-      stage('Checkout Silverpeas Looks') {
-        fetchFromGithub 'Silverpeas-Looks'
-      }
-      stage('Checkout Silverpeas Mobile') {
-        fetchFromGithub 'silverpeasmobile'
-      }
       stage('Build Silverpeas Core') {
+        fetchFromGithub 'Silverpeas-Core'
         buildMavenProject(project: 'Silverpeas-Core',
             version: version,
             parentVersion: parentVersion) {
@@ -60,6 +40,7 @@ node {
         }
       }
       stage('Build Silverpeas Components') {
+        fetchFromGithub 'Silverpeas-Components'
         buildMavenProject(project: 'Silverpeas-Components',
             version: version,
             parentVersion: parentVersion) {
@@ -67,19 +48,23 @@ node {
         }
       }
       stage('Build Silverpeas Assembly') {
+        fetchFromGithub 'Silverpeas-Assembly'
         buildMavenProject project: 'Silverpeas-Assembly',
             version: version,
             parentVersion: parentVersion
       }
       stage('Build Silverpeas Setup') {
+        fetchFromGithub 'Silverpeas-Setup'
         buildGradleProject project: 'Silverpeas-Setup',
             version: version
       }
       stage('Build Silverpeas Distribution') {
+        fetchFromGithub 'Silverpeas-Distribution'
         buildMavenProject project: 'Silverpeas-Distribution',
             version: version
       }
       stage('Build Silverpeas Looks') {
+        fetchFromGithub 'Silverpeas-Looks'
         buildMavenProject(project: 'Silverpeas-Looks',
             version: version,
             parentVersion: parentVersion) {
@@ -87,6 +72,7 @@ node {
         }
       }
       stage('Build Silverpeas Mobile') {
+        fetchFromGithub 'silverpeasmobile'
         buildMavenProject project: 'silverpeasmobile',
             version: version,
             parentVersion: parentVersion
