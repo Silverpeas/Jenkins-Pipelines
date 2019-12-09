@@ -1,7 +1,9 @@
 /*
  * This pipeline requires the following build parameter to be set:
  * BRANCH: the name of the Git branch from which the project has to be fetched and built.
- * IMAGE_VERSION: the version of the Docker image to use for running the job
+ * IMAGE_VERSION: the version of the Docker image to use for running the job.
+ * Optionally, the following build parameter can be set at true to skip the executions of the tests:
+ * SKIP_TEST.
  */
 node {
   catchError {
@@ -11,7 +13,7 @@ node {
     def release
     def commits = [:]
     docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
+      stage('Prepare') {
         sh "rm -rf *"
         if (!params.BRANCH) {
           params.BRANCH = 'master'
@@ -71,12 +73,6 @@ node {
           runSonarAnalysis(it)
         }
       }
-      stage('Build Silverpeas Mobile') {
-        fetchFromGithub 'silverpeasmobile'
-        buildMavenProject project: 'silverpeasmobile',
-            version: version,
-            parentVersion: parentVersion
-      }
       stage('Deploy Silverpeas Core') {
         deployMavenProject(project: 'Silverpeas-Core',
             repo: nexusRepo,
@@ -104,11 +100,6 @@ node {
       }
       stage('Deploy Silverpeas Looks') {
         deployMavenProject(project: 'Silverpeas-Looks',
-            repo: nexusRepo,
-            commits: commits)
-      }
-      stage('Deploy Silverpeas Mobile') {
-        deployMavenProject(project: 'silverpeasmobile',
             repo: nexusRepo,
             commits: commits)
       }

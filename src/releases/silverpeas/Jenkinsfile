@@ -14,8 +14,11 @@ node {
     def mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
-        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION)
-        buildToRelease = readYaml file: 'build.yaml'
+        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION), target: "${env.WORKSPACE}/silverpeas"
+        copyArtifacts projectName: 'Silverpeas_Mobile_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION), target: "${env.WORKSPACE}/mobile"
+        buildToRelease = readYaml file: 'silverpeas/build.yaml'
+        def mobileToRelease = readYaml file: 'mobile/build.yaml'
+        buildToRelease.commits['silverpeasmobile'] = mobileToRelease.commit
         parentVersion = buildToRelease.parent
         def branch = getMainBranch(buildToRelease)
         projectDefinitionRelease = parentVersion != null && branch == 'master' && (parentVersion.contains('build') || parentVersion.contains('SNAPSHOT'))
@@ -287,7 +290,7 @@ Please, consult the console log of the release of Silverpeas ${buildToRelease.re
 
 def fetchFromGithub(project) {
   sh "rm -rf * .git*"
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/SilverTeamWork/${project}"
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
 }
 
 def withGit(project, closure) {
