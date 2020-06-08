@@ -301,6 +301,11 @@ def withGit(project, closure) {
 }
 
 def buildGradleProject(version) {
+  if (!version.endsWith('SNAPSHOT')) {
+    sh """
+sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${version}'/g" Jenkinsfile
+"""
+  }
   sh """
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
 ./gradlew clean install publish
@@ -326,6 +331,7 @@ git commit -am "Update parent POM to version ${parent}"
 """
   }
   sh """
+sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${version}'/g" Jenkinsfile
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
