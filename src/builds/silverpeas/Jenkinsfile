@@ -171,7 +171,7 @@ def buildGradleProject(args, postbuild = null) {
   dir(args.project) {
     sh """
 sed -i -e "s/version = '.\\+'/version = '${args.version}'/g" build.gradle
-./gradlew clean test install
+./gradlew clean build publishToMavenLocal
 """
     //stash name: args.project, includes: '**/build.gradle, **/build/**/*'
     postbuild?.call()

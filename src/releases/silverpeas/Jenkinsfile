@@ -308,7 +308,7 @@ sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${version}'/g" J
   }
   sh """
 sed -i -e "s/version = '.\\+'/version = '${version}'/g" build.gradle
-./gradlew clean install publish
+./gradlew clean build publish
 """
 }
 
