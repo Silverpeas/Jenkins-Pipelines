@@ -133,7 +133,9 @@ node {
         def branch = getMainBranch(buildToRelease.release)
         sh "git checkout ${branch}"
         withGit(project) { repo ->
+          String wildfly = wildflyVersion.replace('.Final', '')
           sh """
+sed -i -e "s/<wildfly.version>[0-9a-zA-Z.-]\\+/<wildfly.version>${wildfly}/g" pom.xml
 mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildToRelease.release}
 mvn clean install
@@ -318,8 +320,9 @@ sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${nextVers
 sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
 sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>HEAD/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
-mvn clean install -Dmaven.test.skip=true -Pdeployment
 """
+//mvn clean install -Dmaven.test.skip=true -Pdeployment
+//"""
 }
 
 def buildMavenProjectRelease(version, parent = null) {
@@ -330,8 +333,12 @@ mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${paren
 git commit -am "Update parent POM to version ${parent}"
 """
   }
-  sh """
+  if (fileExists("Jenkinsfile")) {
+    sh """
 sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${version}'/g" Jenkinsfile
+"""
+  }
+  sh """
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
