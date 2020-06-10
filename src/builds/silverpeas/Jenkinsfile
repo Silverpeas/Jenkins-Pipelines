@@ -7,7 +7,8 @@
  */
 node {
   catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def buildRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def releaseRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
     def version
     def parentVersion
     def release
@@ -26,7 +27,9 @@ node {
         if (params.BRANCH == 'master' && (pom.parent.version.contains('build') || pom.parent.version.contains('SNAPSHOT'))) {
           copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
           def parentBuild = readYaml file: 'build.yaml'
-          parentVersion = parentBuild.version
+          def isReleased = sh returnStatus: true,
+              script: "curl --output /dev/null --silent --head --fail -r 0-0 ${releaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
+          parentVersion = isReleased ? parentBuild.release : parentBuild.version
         } else {
           parentVersion = pom.parent.version
         }
@@ -75,32 +78,32 @@ node {
       }
       stage('Deploy Silverpeas Core') {
         deployMavenProject(project: 'Silverpeas-Core',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Deploy Silverpeas Components') {
         deployMavenProject(project: 'Silverpeas-Components',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Deploy Silverpeas Assembly') {
         deployMavenProject(project: 'Silverpeas-Assembly',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Deploy Silverpeas Setup') {
         deployGradleProject(project: 'Silverpeas-Setup',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Deploy Silverpeas Distribution') {
         deployMavenProject(project: 'Silverpeas-Distribution',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Deploy Silverpeas Looks') {
         deployMavenProject(project: 'Silverpeas-Looks',
-            repo: nexusRepo,
+            repo: buildRepo,
             commits: commits)
       }
       stage('Archive Build Version') {
