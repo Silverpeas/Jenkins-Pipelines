@@ -257,7 +257,10 @@ You can then create a PR in https://github.com/docker-library/official-images to
         echo "Publish the web site for the release of Silverpeas ${buildToRelease.release}..."
         fetchFromGithub 'Silverpeas-Project-Web-Site'
         if (!isMinor(buildToRelease.release)) {
+          def idx = wildflyVersion.indexOf('.')
+          def wildflyMainVersion = wildflyVersion.substring(0, idx)
           def status = sh script: """
+sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildflyMainVersion}/g" pom.xml
 sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${buildToRelease.release}/g" pom.xml
 sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${buildToRelease.release}/g" pom.xml
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${buildToRelease.version}/g" pom.xml
