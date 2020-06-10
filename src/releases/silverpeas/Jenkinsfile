@@ -296,7 +296,7 @@ def fetchFromGithub(project) {
 def withGit(project, closure) {
   withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
       usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    closure.call("https://${USER}:${PASSWORD}@github.com/SilverTeamWork/${project}")
+    closure.call("https://${USER}:${PASSWORD}@github.com/Silverpeas/${project}")
   }
 }
 
