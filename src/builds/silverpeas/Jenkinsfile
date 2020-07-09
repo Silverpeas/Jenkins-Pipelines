@@ -15,10 +15,10 @@ node {
     def commits = [:]
     docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Prepare') {
-        sh "rm -rf *"
         if (!params.BRANCH) {
-          params.BRANCH = 'master'
+          error "Please set the parameter BRANCH to indicate what branch of the projects to build!"
         }
+        sh "rm -rf *"
         def buildNumber = (new Date()).format('yyMMdd')
         sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${params.BRANCH}/pom.xml"
         def pom = readMavenPom()

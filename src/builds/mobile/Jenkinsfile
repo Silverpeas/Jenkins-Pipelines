@@ -14,13 +14,12 @@ node {
     def commit
     docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Prepare') {
-        sh "rm -rf *"
-        if (!params.BRANCH || params.BRANCH == 'master') {
-          params.BRANCH = 'master'
-          copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true
-        } else {
-          copyArtifacts projectName: 'Silverpeas_Stable_AutoDeploy', flatten: true
+        if (!params.BRANCH) {
+          error "Please set the parameter BRANCH to indicate what branch of the project to build!"
         }
+        sh "rm -rf *"
+        def projectName = params.BRANCH == 'master' ? 'Silverpeas_Master_AutoDeploy' : 'Silverpeas_Stable_AutoDeploy'
+        copyArtifacts projectName: projectName, flatten: true
 
         def silverpeasBuild = readYaml file: 'build.yaml'
         parentVersion = silverpeasBuild.parent
