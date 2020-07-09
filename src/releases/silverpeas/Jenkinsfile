@@ -136,7 +136,7 @@ node {
           String wildfly = wildflyVersion.replace('.Final', '')
           sh """
 sed -i -e "s/<wildfly.version>[0-9a-zA-Z.-]\\+/<wildfly.version>${wildfly}/g" pom.xml
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildToRelease.release}
 mvn clean install
 git commit -am "Build and deliver the Izpack installer for Silverpeas ${buildToRelease.release}"
@@ -334,7 +334,7 @@ def buildMavenProjectRelease(version, parent = null) {
   def pom = readMavenPom()
   if (pom.parent && parent && pom.parent.version != parent) {
     sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parent}
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parent}]"
 git commit -am "Update parent POM to version ${parent}"
 """
   }

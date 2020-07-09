@@ -54,7 +54,7 @@ step([$class                  : 'Mailer',
 def updateIfNecessaryParentVersion(pom, parentVersion) {
   if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
     sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${parentVersion}
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
 git commit -am "Update parent POM to version ${parentVersion}"
 """
     withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',

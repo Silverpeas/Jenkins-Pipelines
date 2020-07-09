@@ -184,7 +184,7 @@ def buildMavenProject(args, postbuild = null) {
     if (pom.parent) {
       if (!pom.parent.version.matches(/[0-9.]+/) && args.parentVersion && pom.parent.version != args.parentVersion) {
         sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion=${args.parentVersion}
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${args.parentVersion}]"
 git commit -am "Update parent POM to version ${args.parentVersion}"
 """
         pushToGithub(args.project, params.BRANCH)
