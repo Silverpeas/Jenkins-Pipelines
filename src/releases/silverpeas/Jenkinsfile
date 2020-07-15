@@ -266,6 +266,7 @@ sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildfl
 sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${buildToRelease.release}/g" pom.xml
 sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${buildToRelease.release}/g" pom.xml
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${buildToRelease.version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildToRelease.release}
 mvn clean site-deploy
 git commit -am "Set information about the new release ${buildToRelease.release}"
 git push origin HEAD:master
