@@ -17,6 +17,9 @@ node {
         copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION), target: "${env.WORKSPACE}/silverpeas"
         copyArtifacts projectName: 'Silverpeas_Mobile_Master_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION), target: "${env.WORKSPACE}/mobile"
         buildToRelease = readYaml file: 'silverpeas/build.yaml'
+        if (!buildToRelease.tested) {
+          error("The build ${buildToRelease.version} cannot be used for the release of ${buildToRelease.release} as it hasn't been tested!")
+        }
         def mobileToRelease = readYaml file: 'mobile/build.yaml'
         buildToRelease.commits['silverpeasmobile'] = mobileToRelease.commit
         parentVersion = buildToRelease.parent
