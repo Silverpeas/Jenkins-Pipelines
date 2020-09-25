@@ -2,36 +2,46 @@ node {
   catchError {
     def version
     def nextVersion
+    def branch
     docker.image("silverpeas/silverbuild")
         .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         echo "Prepare the release of Silverpeas Project (and the dependencies definitions)..."
-        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
-        def parentBuild = readYaml file: 'build.yaml'
-        version = parentBuild.release
-        nextVersion = getNextVersion(parentBuild.release)
+        branch = params.BRANCH ? params.BRANCH : 'master'
+        if (branch == 'master') {
+          copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+          def parentBuild = readYaml file: 'build.yaml'
+          version = parentBuild.release
+          nextVersion = getNextVersion(parentBuild.release)
+        } else {
+          sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/${branch}/pom.xml"
+          def pom = readMavenPom()
+          version = pom.properties['next.release']
+          nextVersion = getNextVersion(version)
+        }
+        echo "Release of ${version}. The next version will be ${nextVersion}"
       }
       stage('Silverpeas Dependencies') {
         echo "Release Silverpeas Dependencies ${version}..."
-        fetchFromGithub('silverpeas-dependencies-bom')
+        fetchFromGithub('silverpeas-dependencies-bom', branch)
         def pom = readMavenPom()
         if (pom.properties['jcr.accesscontrol.version'].contains('SNAPSHOT') || pom.properties['jcr.accesscontrol.version'].contains('build')) {
           error "The Silverpeas JCR AccessControl dependency must be a stable version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
         }
         releaseVersion(version)
         prepareNextVersion(nextVersion)
-        pushToGithub('silverpeas-dependencies-bom')
+        pushToGithub('silverpeas-dependencies-bom', branch)
       }
       stage('Silverpeas Test Dependencies') {
         echo "Release Silverpeas Test Dependencies ${version}..."
-        fetchFromGithub('silverpeas-test-dependencies-bom')
+        fetchFromGithub('silverpeas-test-dependencies-bom', branch)
         releaseVersion(version)
         prepareNextVersion(nextVersion)
-        pushToGithub('silverpeas-test-dependencies-bom')
+        pushToGithub('silverpeas-test-dependencies-bom', branch)
       }
       stage('Silverpeas Project') {
         echo "Release ${version} Silverpeas Project ${version}..."
-        fetchFromGithub('Silverpeas-Project')
+        fetchFromGithub('Silverpeas-Project', branch)
         sh """
 sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
 """
@@ -41,7 +51,7 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
 sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextVersion}-SNAPSHOT/g" pom.xml
 """
         prepareNextVersion(nextVersion)
-        pushToGithub('Silverpeas-Project')
+        pushToGithub('Silverpeas-Project', branch)
       }
     }
   }
@@ -73,16 +83,17 @@ git commit -am "Prepare for next development iteration of next version ${nextver
 """
 }
 
-def fetchFromGithub(project) {
+def fetchFromGithub(project, branch) {
   sh "rm -rf * .git*"
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, branch: branch,
+      url: "https://github.com/Silverpeas/${project}"
 }
 
-def pushToGithub(project) {
+def pushToGithub(project, branch) {
   withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
       usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
     sh """
-git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:master
+git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:${branch}
 git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} --tags
 """
   }
