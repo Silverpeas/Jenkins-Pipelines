@@ -121,8 +121,9 @@ node {
         // publish the project web site only for the master branch
         if (params.BRANCH == 'master') {
           echo "Publish the web site with the new build version ${version}..."
-          fetchFromGithub('Silverpeas-Project-Web-Site')
-          dir("Silverpeas-Project-Web-Site") {
+          def project = 'Silverpeas-Project-Web-Site'
+          fetchFromGithub(project)
+          dir(project) {
             def status = sh script: """
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
 mvn clean site-deploy
@@ -136,7 +137,29 @@ Please, consult the console log of the build ${currentBuild.displayName} of ${cu
 """,
                   to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
               )
+            } else {
+              sh """
+git commit -am "Publish Silverpeas web site with ${version} as the latest build version of Silverpeas"
+"""
+              pushToGithub(project, params.BRANCH)
             }
+          }
+        } else {
+          echo 'Not main development branch: nothing to publish.'
+        }
+      }
+      stage('Publish Silverpeas Test Docker Image into DockerHub') {
+        // publish a test image only for a build versions of the main development branch
+        if (params.BRANCH == 'master') {
+          echo "Generate a test Docker image of Silverpeas ${version}..."
+          def project = 'docker-silverpeas-test'
+          fetchFromGithub(project)
+          dir(project) {
+            sh """
+sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${version}/g" Dockerfile
+git commit -am "Update Dockerfile for Silverpeas ${version}"
+"""
+            pushToGithub(project, params.BRANCH)
           }
         } else {
           echo 'Not main development branch: nothing to publish.'
