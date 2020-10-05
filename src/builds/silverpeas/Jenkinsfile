@@ -29,7 +29,7 @@ node {
           def parentBuild = readYaml file: 'build.yaml'
           def isReleased = sh returnStatus: true,
               script: "curl --output /dev/null --silent --head --fail -r 0-0 ${releaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
-          parentVersion = isReleased ? parentBuild.release : parentBuild.version
+          parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
         } else {
           parentVersion = pom.parent.version
         }
