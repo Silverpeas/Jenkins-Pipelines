@@ -139,8 +139,8 @@ def generateConfigFile(silverpeasHome, db) {
     sh """
 rm -f ${silverpeasHome}/configuration/config.properties
 echo "DB_NAME=${db.name}" > ${silverpeasHome}/configuration/config.properties
-echo "DB_USER=${DB_USER}" >> ${silverpeasHome}/configuration/config.properties
-echo "DB_PASSWORD=${DB_PASSWORD}" >> ${silverpeasHome}/configuration/config.properties
+echo "DB_USER=$DB_USER" >> ${silverpeasHome}/configuration/config.properties
+echo "DB_PASSWORD=$DB_PASSWORD" >> ${silverpeasHome}/configuration/config.properties
 echo "DB_SERVERTYPE=${db.type}"  >> ${silverpeasHome}/configuration/config.properties
 echo "DB_SERVER=${db.host}" >> ${silverpeasHome}/configuration/config.properties
 """
