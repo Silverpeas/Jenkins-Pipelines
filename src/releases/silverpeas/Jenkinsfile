@@ -13,10 +13,10 @@ node {
     def buildToRelease
     String parentVersion
     boolean projectDefinitionRelease
-    String branch
+    String branch = getMainBranch(params.BUILD_VERSION)
     boolean isPatch = isPatchVersion(params.BUILD_VERSION)
     String mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
-    docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+    docker.image("silverpeas/silverbuild:${getDockerImageVersion(params.BUILD_VERSION)}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
         echo 'Prepare the release processing pipeline and set up global parameters for the release'
         String type = isPatch ? 'Stable' : 'Master';
@@ -29,7 +29,6 @@ node {
         def mobileToRelease = readYaml file: 'mobile/build.yaml'
         buildToRelease.commits['silverpeasmobile'] = mobileToRelease.commit
         parentVersion = buildToRelease.parent
-        branch = getMainBranch(buildToRelease)
         projectDefinitionRelease = parentVersion != null && branch == 'master' && (parentVersion.contains('build') || parentVersion.contains('SNAPSHOT'))
         sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
         def pom = readMavenPom()
@@ -37,6 +36,7 @@ node {
         echo """
 Release processing parameters:
     Version to release : ${buildToRelease.release}
+    From build version : ${params.BUILD_VERSION}
     Wildfly version    : ${wildflyVersion}
     Project POM version: ${parentVersion}
     Project POM release? ${projectDefinitionRelease}
@@ -506,4 +506,10 @@ def getMainBranch(version) {
 def isPatchVersion(buildVersion) {
   Matcher m = buildVersion =~ /^\d\.\d\.\d-build\d+$/
   return m.matches()
+}
+
+@NonCPS
+def getDockerImageVersion(buildVersion) {
+  Matcher matcher = buildVersion =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}" : 'latest'
 }
