@@ -205,7 +205,7 @@ git push ${repo} ${buildToRelease.release}.x
 git tag ${buildToRelease.release}
 sed -i -e "s/version=.\\+/version=${nextVersion}/g" Dockerfile
 sed -i -e "s/build=.\\+/build=1/g" Dockerfile
-sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.substring(0, wildflyVersion.length - 6)}/g" Dockerfile
+sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.replace('.Final', '')}/g" Dockerfile
 git commit -am "Update Dockerfile for Silverpeas ${nextVersion}"
 git push ${repo} HEAD:${branch}
 git push ${repo} --tags
@@ -225,7 +225,7 @@ git push ${repo} --tags
 git tag ${buildToRelease.release}
 sed -i -e "s/version=.\\+/version=${nextVersion}/g" Dockerfile
 sed -i -e "s/build=.\\+/build=1/g" Dockerfile
-sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.substring(0, wildflyVersion.length - 6)}/g" Dockerfile
+sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.replace('.Final', '')}/g" Dockerfile
 git commit -am "Update Dockerfile for Silverpeas ${nextVersion}"
 git push ${repo} HEAD:${branch}
 git push ${repo} --tags
@@ -240,7 +240,7 @@ git push ${repo} --tags
         withGit(project) { repo ->
           sh """
 sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${buildToRelease.release}/g" Dockerfile
-sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.substring(0, wildflyVersion.length - 6)}/g" Dockerfile
+sed -i -e "s/ARG WILDFLY_VERSION=.\\+/ARG WILDFLY_VERSION=${wildflyVersion.replace('.Final', '')}/g" Dockerfile
 sed -i -e "s/build=.\\+/build=1/g" Dockerfile
 git commit -am "Update Dockerfile for Silverpeas ${buildToRelease.release}"
 git tag ${buildToRelease.release}
@@ -262,7 +262,7 @@ git push ${repo} --tags
           fetchFromGithub project, branch
           withGit(project) { repo ->
             sh """
-./generate-dockerfile.sh ${buildToRelease.release} ${wildflyVersion.substring(0, wildflyVersion.length - 6)}
+./generate-dockerfile.sh ${buildToRelease.release} ${wildflyVersion.replace('.Final', '')}
 git commit -am "Generate Dockerfile for Silverpeas ${buildToRelease.release}"
 git tag ${buildToRelease.release}
 git push ${repo} HEAD:${branch}
@@ -411,9 +411,9 @@ mvn clean deploy -Dmaven.test.skip=true -Pdeployment -Prelease-sign-artifacts
 def createMinorBranchFor(project, version) {
   sh "git checkout -b ${version}.x"
   if (fileExists('pom.xml')) {
-    buildMavenProjectSnapshot("${version}.1")
+    buildMavenProjectSnapshot("${version}.1-SNAPSHOT")
   } else if (fileExists('build.gradle')) {
-    buildGradleProject("${version}.1")
+    buildGradleProject("${version}.1-SNAPSHOT")
   }
   withGit(project) { repo ->
     String anyModif = sh(script: 'git status -s', returnStdout: true).trim()
