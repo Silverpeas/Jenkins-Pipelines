@@ -241,7 +241,9 @@ mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.tes
 
 def runSonarAnalysis(project) {
   // run sonarqube analysis only for the master branch and only tests aren't skipped
-  if (params.BRANCH == 'master' && !params.SKIP_TEST) {
+  // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
+  // the Silverpeas code repository can be used
+  if ((params.BRANCH == 'master' || params.BRANCH == 'sonarqube') && !params.SKIP_TEST) {
     withSonarQubeEnv {
       sh """
 mvn ${SONAR_MAVEN_GOAL} -Dsonar.projectKey=Silverpeas_${project} \\
