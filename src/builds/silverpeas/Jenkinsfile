@@ -243,7 +243,7 @@ def runSonarAnalysis(project) {
   // run sonarqube analysis only for the master branch and only tests aren't skipped
   // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
   // the Silverpeas code repository can be used
-  if ((params.BRANCH == 'master' || params.BRANCH == 'sonarqube') && !params.SKIP_TEST) {
+  if (params.BRANCH == 'master') {
     withSonarQubeEnv {
       sh """
 mvn ${SONAR_MAVEN_GOAL} -Dsonar.projectKey=Silverpeas_${project} \\
