@@ -53,6 +53,9 @@ sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextVe
         prepareNextVersion(nextVersion)
         pushToGithub('Silverpeas-Project', branch)
       }
+      stage('Archive version release') {
+        currentBuild.displayName = version
+      }
     }
   }
   step([$class: 'Mailer',
