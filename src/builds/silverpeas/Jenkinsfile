@@ -295,7 +295,7 @@ def deployMavenProject(args) {
 
 def deployProjectDocumentation(args) {
   dir(args.project) {
-    sh "mvn site-deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true"
+    sh "mvn site-deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
   }
 }
 
