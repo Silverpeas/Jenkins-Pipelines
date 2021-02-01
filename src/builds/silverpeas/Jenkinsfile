@@ -149,6 +149,16 @@ git commit -am "Publish Silverpeas web site with ${version} as the latest build 
           echo 'Not main development branch: nothing to publish.'
         }
       }
+      stage('Publish Silverpeas Core Documentation') {
+        if (params.BRANCH == 'master') {
+          deployProjectDocumentation(project: 'Silverpeas-Core', repo: buildRepo)
+        }
+      }
+      stage('Publish Silverpeas Components Documentation') {
+        if (params.BRANCH == 'master') {
+          deployProjectDocumentation(project: 'Silverpeas-Components', repo: buildRepo)
+        }
+      }
       stage('Publish Silverpeas Test Docker Image into DockerHub') {
         // publish a test image only for a build versions of the main development branch
         if (params.BRANCH == 'master') {
@@ -280,6 +290,12 @@ def deployMavenProject(args) {
     sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
     final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
     args.commits[args.project] = commit.trim()
+  }
+}
+
+def deployProjectDocumentation(args) {
+  dir(args.project) {
+    sh "mvn site-deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true"
   }
 }
 
