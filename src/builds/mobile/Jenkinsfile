@@ -1,9 +1,18 @@
+import java.util.regex.Matcher
+
 /*
+ * This pipeline has some expectations:
+ * - the job name is formatted as Silverpeas_Mobile_<PRJ_NAME>_AutoDeploy with PRJ_NAME the name
+ *   of the project version: Master for the current development version, Stable for the current
+ *   stable version, and the project's branch name for older stable versions.
+ * - the name of the job building a release candidate of Silverpeas upon which this project depend
+ *   is formatted as Silverpeas_<PRJ_NAME>_AutoDeploy with PRJ_NAME the same value as above.
+ *
  * This pipeline requires the following build parameter to be set:
- * BRANCH: the name of the Git branch from which the project has to be fetched and built.
- * IMAGE_VERSION: the version of the Docker image to use for running the job.
- * Optionally, the following build parameter can be set at true to skip the executions of the tests:
- * SKIP_TEST.
+ * - BRANCH: the name of the Git branch from which the project has to be fetched and built.
+ * - IMAGE_VERSION: the version of the Docker image to use for running the job.
+ * - Optionally, the following build parameter can be set at true to skip the executions of the
+ *   tests: SKIP_TEST.
  */
 node {
   catchError {
@@ -18,9 +27,8 @@ node {
           error "Please set the parameter BRANCH to indicate what branch of the project to build!"
         }
         sh "rm -rf *"
-        def projectName = params.BRANCH == 'master' ? 'Silverpeas_Master_AutoDeploy' : 'Silverpeas_Stable_AutoDeploy'
-        copyArtifacts projectName: projectName, flatten: true
-
+        def silverpeasProjectName = fetchSilverpeasDependency(env.JOB_NAME)
+        copyArtifacts projectName: silverpeasProjectName, flatten: true
         def silverpeasBuild = readYaml file: 'build.yaml'
         parentVersion = silverpeasBuild.parent
         version = silverpeasBuild.version
@@ -118,7 +126,13 @@ def deployMavenProject(args) {
 
 @NonCPS
 def fetchTargetRepo(nexusRepoUrl) {
-  def matcher = nexusRepoUrl =~ /(repositories\/.+)/
+  Matcher matcher = nexusRepoUrl =~ /(repositories\/.+)/
   matcher ? matcher[0][1] : ''
+}
+
+@NonCPS
+def fetchSilverpeasDependency(jobName) {
+  Matcher matcher = jobName =~ /Silverpeas_Mobile_([a-zA-Z0-9.]+)_AutoDeploy/
+  matcher.matches() ? "Silverpeas_${matcher[0][1]}_AutoDeploy" : ''
 }
 
