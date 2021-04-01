@@ -1,0 +1,83 @@
+node {
+  catchError {
+    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    def gitRepo = 'https://github.com/Silverpeas/Silverpeas-WebBrowserEdition.git'
+    def parentVersion
+    def buildNumber
+    def version
+    def release
+    def silverpeasVersion
+    docker.image("silverpeas/silverbuild")
+        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+      stage('Preparation') {
+        sh "rm -rf *"
+        buildNumber = (new Date()).format('yyMMdd')
+        echo "Prepare the build ${buildNumber} of Silverpeas Web Browser Edition..."
+        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+        def parentBuild = readYaml file: 'build.yaml'
+        parentVersion = parentBuild.version
+        sh 'rm -f build.yaml'
+        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true
+        def silverpeasBuild = readYaml file: 'build.yaml'
+        silverpeasVersion = silverpeasBuild.version
+        sh "rm -f build.yaml"
+      }
+      stage('Checkout') {
+        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: 'main', poll: false, url: "${gitRepo}"
+        def pom = readMavenPom()
+        release = pom.properties['next.release']
+        version = "${release}-build${buildNumber}"
+
+        updateIfNecessaryParentVersion(pom, parentVersion)
+        updateIfNecessarySilverpeasVersion(pom, silverpeasVersion)
+
+        sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
+      }
+      stage('Build and Deploy') {
+        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+      }
+      stage('Archive Build Version') {
+        final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+        String artifact = 'target/build.yaml'
+        writeYaml file: artifact, data: ['version': version, 'commit': commit.trim(), 'parent': parentVersion, 'release': release]
+        archiveArtifacts artifacts: artifact, fingerprint: true
+        currentBuild.displayName = version
+      }
+    }
+  }
+step([$class                  : 'Mailer',
+      notifyEveryUnstableBuild: true,
+      recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+      sendToIndividuals       : true])
+}
+
+def updateIfNecessaryParentVersion(pom, parentVersion) {
+  if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
+    sh """
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
+git commit -am "Update parent POM to version ${parentVersion}"
+"""
+    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-WebBrowserEdition HEAD:main"
+    }
+  } else if (pom.parent.version.contains('SNAPSHOT')) {
+    error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+  }
+}
+
+def updateIfNecessarySilverpeasVersion(pom, silverpeasVersion) {
+  if (!pom.properties['silverpeas.version'].matches(/[0-9.]+/) && pom.properties['silverpeas.version'] != silverpeasVersion) {
+    sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
+git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
+"""
+    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-WebBrowserEdition HEAD:main"
+    }
+  } else if (pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
+    error "The dependency on Silverpeas must be at a stable or a build version for this project to be deployed. Current version is ${pom.properties['silverpeas.version']}"
+  }
+}
+
