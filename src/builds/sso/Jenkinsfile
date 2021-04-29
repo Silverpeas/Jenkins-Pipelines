@@ -34,7 +34,7 @@ node {
         sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
       }
       stage('Build and Deploy') {
-        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
       }
       stage('Archive Build Version') {
         final String commit = sh script: 'git rev-parse HEAD', returnStdout: true

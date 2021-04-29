@@ -243,7 +243,7 @@ mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.tes
       if (params.SKIP_TEST) {
         sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
       } else {
-        sh "mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+        sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
       }
     }
     postbuild?.call(args.project)
