@@ -5,7 +5,7 @@ node {
     def silverpeasHome
     def wildflyHome
     def dbConf
-    def fileRepo = 'http://repository.silverpeas.org/files'
+    def fileRepo = 'https://repository.silverpeas.org/files'
     def mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     def gitRepo = 'https://github.com/mmoqui/Silverpeas-installation-tests.git'
     docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
