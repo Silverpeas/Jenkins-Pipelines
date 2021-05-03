@@ -34,7 +34,11 @@ node {
         sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
       }
       stage('Build and Deploy') {
-        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci"
+        sh """
+/opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
+mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci
+/opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
+"""
       }
       stage('Archive Build Version') {
         final String commit = sh script: 'git rev-parse HEAD', returnStdout: true

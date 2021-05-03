@@ -109,8 +109,14 @@ mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.tes
     } else {
       if (params.SKIP_TEST) {
         sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
-      } else {
+      } else if (args.version.startsWith('6.1') || args.version.startsWith('6.2'))  {
         sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
+      } else {
+        sh """
+/opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
+mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
+/opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
+"""
       }
     }
   }
