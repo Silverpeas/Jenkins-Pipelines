@@ -19,9 +19,10 @@ node {
     boolean projectDefinitionRelease
     String branch = getMainBranch(params.BUILD_VERSION)
     boolean isPatch = isPatchVersion(params.BUILD_VERSION)
+    String dockerImage = getDockerImageVersion(params.BUILD_VERSION)
     boolean isOldVersionPatch
     String mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
-    docker.image("silverpeas/silverbuild:${getDockerImageVersion(params.BUILD_VERSION)}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+    docker.image("silverpeas/silverbuild:${dockerImage}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
 
       stage('Preparation') {
         echo 'Prepare the release processing pipeline and set up global parameters for the release'
@@ -339,48 +340,14 @@ You can then create a PR in https://github.com/docker-library/official-images to
         }
       }
 
-      stage('Publish Project Web Site') {
-        if (!isOldVersionPatch) {
-          echo "Publish the web site for the release of Silverpeas ${buildToRelease.release}..."
-          fetchFromGithub 'Silverpeas-Project-Web-Site', 'master'
-          def idx = wildflyVersion.indexOf('.')
-          def wildflyMainVersion = wildflyVersion.substring(0, idx)
-          def status
-          if (isPatch) {
-            status = sh script: """
-sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildflyMainVersion}/g" pom.xml
-sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${buildToRelease.release}/g" pom.xml
-sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${buildToRelease.release}/g" pom.xml
-mvn clean site-deploy
-git commit -am "Set information about the new release ${buildToRelease.release}"
-git push origin HEAD:master
-""", returnStatus: true
-          } else {
-            status = sh script: """
-sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildflyMainVersion}/g" pom.xml
-sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${buildToRelease.release}/g" pom.xml
-sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${buildToRelease.release}/g" pom.xml
-sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${buildToRelease.version}/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildToRelease.release}
-mvn clean site-deploy
-git commit -am "Set information about the new release ${buildToRelease.release}"
-git push origin HEAD:master
-""", returnStatus: true
-          }
-          if (status != 0) {
-            emailext(
-                subject: "Silverpeas Web Site publishing failure!",
-                body: """
-I was unable to publish the Silverpeas Community Web Site to www.silverpeas.org !
-Please, consult the console log of the release of Silverpeas ${buildToRelease.release} in job ${currentBuild.projectName}
-""",
-                to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
-            )
-          }
-          currentBuild.displayName = buildToRelease.release
-        } else {
-          echo 'Nothing to publish for an old stable version'
-        }
+      stage('Silverpeas Documentation Generation') {
+        echo 'Trigger the documentation generation and publishing job'
+        build job: 'Silverpeas_Documentation_Publishing', parameters: [
+            string(name: 'IMAGE', value: dockerImage),
+            string(name: 'VERSION', value: buildToRelease.release),
+            string(name: 'PRJ_VERSION', value: parentVersion)
+        ], wait: false
+        currentBuild.displayName = buildToRelease.release
       }
     }
   }

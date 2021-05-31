@@ -125,6 +125,18 @@ node {
           def project = 'Silverpeas-Project-Web-Site'
           fetchFromGithub(project)
           dir(project) {
+            def pom = readMavenPom()
+            if (pom.parent) {
+              if (!pom.parent.version.matches(/[0-9.]+/) && parentVersion && pom.parent.version != parentVersion) {
+                sh """
+mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
+git commit -am "Update parent POM to version ${parentVersion}"
+"""
+                pushToGithub(project, params.BRANCH)
+              } else if (pom.parent.version.contains('SNAPSHOT')) {
+                error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+              }
+            }
             def status = sh script: """
 sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${version}/g" pom.xml
 mvn clean site-deploy
@@ -147,16 +159,6 @@ git commit -am "Publish Silverpeas web site with ${version} as the latest build 
           }
         } else {
           echo 'Not main development branch: nothing to publish.'
-        }
-      }
-      stage('Publish Silverpeas Core Documentation') {
-        if (params.BRANCH == 'master') {
-          deployProjectDocumentation(project: 'Silverpeas-Core', repo: buildRepo)
-        }
-      }
-      stage('Publish Silverpeas Components Documentation') {
-        if (params.BRANCH == 'master') {
-          deployProjectDocumentation(project: 'Silverpeas-Components', repo: buildRepo)
         }
       }
       stage('Publish Silverpeas Test Docker Image into DockerHub') {
@@ -296,12 +298,6 @@ def deployMavenProject(args) {
     sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
     final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
     args.commits[args.project] = commit.trim()
-  }
-}
-
-def deployProjectDocumentation(args) {
-  dir(args.project) {
-    sh "mvn site-deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
   }
 }
 

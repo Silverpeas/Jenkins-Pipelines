@@ -1,0 +1,130 @@
+import java.util.regex.Matcher
+
+/*
+ * Generate and publish the documentation of a new version of Silverpeas. This pipeline should be
+ * launched once the release pipeline of Silverpeas has succeeded.
+ *
+ * This pipeline requires the following build parameter to be set:
+ * IMAGE:   the version of the Docker image to use by the pipeline.
+ * VERSION: the version number of Silverpeas for which the documentation has to be generated and
+ * published.
+ * PRJ_VERSION: the version number of the projects global definition in which are defined all
+ * common information about the Silverpeas projects and the required dependencies.
+ */
+node {
+  catchError {
+    String wildflyVersion
+    boolean isPatch = isPatchVersion(params.VERSION)
+    String branch = getBranch(params.VERSION)
+    String mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
+    docker.image("silverpeas/silverbuild:${params.IMAGE}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
+
+      stage('Preparation') {
+        echo 'Prepare the documentation generation and publishing pipeline'
+        sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${params.PRJ_VERSION}/silverpeas-project-${params.PRJ_VERSION}.pom"
+        def pom = readMavenPom()
+        wildflyVersion = pom.properties['wildfly.version']
+        sh 'rm -rf * .git*'
+      }
+
+      stage('Publish Silverpeas Core Documentation') {
+        if (params.BRANCH == 'master') {
+          deployProjectDocumentation(project: 'Silverpeas-Core',
+              version: params.VERSION,
+              branch: branch)
+        }
+      }
+
+      stage('Publish Silverpeas Components Documentation') {
+        if (params.BRANCH == 'master') {
+          deployProjectDocumentation(project: 'Silverpeas-Components',
+              version: params.VERSION,
+              branch: branch)
+        }
+      }
+
+      stage('Publish Project Web Site') {
+        echo "Publish the web site for the release of Silverpeas ${buildToRelease.release}..."
+        fetchFromGithub 'Silverpeas-Project-Web-Site', branch
+        def idx = wildflyVersion.indexOf('.')
+        def wildflyMainVersion = wildflyVersion.substring(0, idx)
+        def status
+        if (isPatch) {
+          status = sh script: """
+sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildflyMainVersion}/g" pom.xml
+sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${params.VERSION}/g" pom.xml
+sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${params.VERSION}/g" pom.xml
+mvn clean site-deploy
+git commit -am "Set information about the new release ${params.VERSION}"
+git push origin HEAD:master
+""", returnStatus: true
+        } else {
+          status = sh script: """
+sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${wildflyMainVersion}/g" pom.xml
+sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${params.VERSION}/g" pom.xml
+sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${params.VERSION}/g" pom.xml
+sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${params.VERSION}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${params.VERSION}
+mvn clean site-deploy
+git commit -am "Set information about the new release ${params.VERSION}"
+git push origin HEAD:master
+""", returnStatus: true
+        }
+        if (status != 0) {
+          emailext(
+              subject: "Silverpeas Web Site publishing failure!",
+              body: """
+I was unable to publish the Silverpeas Community Web Site to www.silverpeas.org !
+Please, consult the console log of the build ${BUILD_NUMBER} of the job ${currentBuild.projectName}
+""",
+              to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+          )
+        }
+        currentBuild.displayName = params.VERSION
+      }
+    }
+  }
+
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: true,
+        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+        sendToIndividuals: true])
+  step([$class: 'Mailer',
+        notifyEveryUnstableBuild: false,
+        recipients: "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org",
+        sendToIndividuals: true])
+}
+
+def fetchFromGithub(project, branch) {
+  sh "rm -rf * .git*"
+  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: branch, poll: false, url: "https://github.com/Silverpeas/${project}"
+}
+
+def deployProjectDocumentation(args) {
+  fetchFromGithub args.project, args.branch
+  withGit(args.project) {
+    sh """
+git checkout ${args.version}
+mvn site-deploy -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true
+"""
+  }
+}
+
+def withGit(project, closure) {
+  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
+      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
+    closure.call("https://${USER}:${PASSWORD}@github.com/Silverpeas/${project}")
+  }
+}
+
+@NonCPS
+def isPatchVersion(version) {
+  Matcher m = version =~ /^\d\.\d\.\d$/
+  return m.matches()
+}
+
+@NonCPS
+def getBranch(version) {
+  Matcher matcher = version =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
+}
