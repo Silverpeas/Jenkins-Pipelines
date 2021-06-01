@@ -152,6 +152,7 @@ Please, consult the console log of the build ${currentBuild.displayName} of ${cu
               )
             } else {
               sh """
+rm -f velocity.log
 git commit -am "Publish Silverpeas web site with ${version} as the latest build version of Silverpeas"
 """
               pushToGithub(project, params.BRANCH)
