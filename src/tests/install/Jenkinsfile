@@ -62,7 +62,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
         }
       }
       stage('Installation test with MS-SQLServer database') {
-        withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
+        /*withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           def database = [
               name    : dbConf.mssql.inst,
@@ -82,7 +82,16 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
             delete(database)
           }
-        }
+        }*/
+        echo "The MS-SQLServer used in the test doesn't run currently"
+        emailext(
+            subject: "Les service MS-SQLServer utilisé dans les tests ne fonctionne plus !",
+            body: """
+N'oublies pas de remettre en état le serveur MS-SQLServer sur int1.silverpeas.org pour pouvoir dérouler
+les tests d'installation et de mise à jour de Silverpeas
+""",
+            to: 'david.lesimple@silverpeas.com'
+        )
       }
       stage('Installation test with Oracle database') {
         withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',

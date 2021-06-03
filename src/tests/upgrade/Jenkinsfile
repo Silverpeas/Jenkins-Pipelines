@@ -59,7 +59,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
         }
       }
       stage('Upgrade test with MS-SQLServer database') {
-        withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
+        /*withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
             usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
           def database = [
               name    : dbConf.mssql.updt,
@@ -76,7 +76,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-mssql.log"
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
           }
-        }
+        }*/
       }
       stage('Installation test with Oracle database') {
         withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',
