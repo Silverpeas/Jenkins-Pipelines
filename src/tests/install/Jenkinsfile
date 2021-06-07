@@ -55,8 +55,9 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-postgresql.log"
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true
+            sh "rename 's/\\d+/postgresql/' ${silverpeasHome}/log/build-*.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true,
+                allowEmptyArchive: true
             delete(database)
           }
         }
@@ -78,8 +79,9 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-mssql.log"
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
+            sh "rename 's/\\d+/mssql/' ${silverpeasHome}/log/build-*.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true,
+                allowEmptyArchive: true
             delete(database)
           }
         }*/
@@ -110,8 +112,9 @@ les tests d'installation et de mise à jour de Silverpeas
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-oracle.log"
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true
+            sh "rename 's/\\d+/oracle/' ${silverpeasHome}/log/build-*.log"
+            archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true,
+                allowEmptyArchive: true
             delete(database)
           }
         }
