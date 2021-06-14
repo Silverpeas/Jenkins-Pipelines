@@ -2,7 +2,7 @@ import java.util.regex.Matcher
 
 node {
   catchError {
-    def silverpeasHome
+    String silverpeasHome
     def wildflyHome
     def dbConf
     def fileRepo = 'https://www.silverpeas.org/files'
@@ -55,7 +55,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "rename 's/\\d+/postgresql/' ${silverpeasHome}/log/build-*.log"
+            renameWith(silverpeasHome, 'postgresql')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true,
                 allowEmptyArchive: true
             delete(database)
@@ -79,7 +79,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "rename 's/\\d+/mssql/' ${silverpeasHome}/log/build-*.log"
+            renameWith(silverpeasHome, 'mssql')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true,
                 allowEmptyArchive: true
             delete(database)
@@ -103,7 +103,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             create(database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "rename 's/\\d+/oracle/' ${silverpeasHome}/log/build-*.log"
+            renameWith(silverpeasHome, 'oracle')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true,
                 allowEmptyArchive: true
             delete(database)
@@ -147,6 +147,11 @@ echo "DB_SERVERTYPE=${db.type}"  >> ${silverpeasHome}/configuration/config.prope
 echo "DB_SERVER=${db.host}" >> ${silverpeasHome}/configuration/config.properties
 """
   }
+}
+
+void renameWith(String silverpeasHome, String postfix) {
+  String buildLog = sh returnStdout: true, script: "ls ${silverpeasHome}/log | grep 'build-[0-9]\\+_[0-9]\\+.log'"
+  sh "mv ${silverpeasHome}/log/${buildLog.trim()} ${silverpeasHome}/log/build-${postfix}.log"
 }
 
 @NonCPS

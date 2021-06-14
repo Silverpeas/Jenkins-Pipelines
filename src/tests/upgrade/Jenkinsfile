@@ -2,7 +2,7 @@ import java.util.regex.Matcher
 
 node {
   catchError {
-    def silverpeasHome
+    String silverpeasHome
     def wildflyHome
     def dbConf
     def fileRepo = 'https://www.silverpeas.org/files'
@@ -53,7 +53,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-postgresql.log"
+            renameWith(silverpeasHome, 'postgresql')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true
           }
         }
@@ -73,7 +73,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-mssql.log"
+            renameWith(silverpeasHome, 'mssql')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true
           }
         }
@@ -93,7 +93,7 @@ cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
             generateConfigFile(silverpeasHome, database)
             runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
           } finally {
-            sh "mv ${silverpeasHome}/log/build-*.log ${silverpeasHome}/log/build-oracle.log"
+            renameWith(silverpeasHome, 'oracle')
             archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true
           }
         }
@@ -127,6 +127,10 @@ echo "DB_SERVER=${db.host}" >> ${silverpeasHome}/configuration/config.properties
   }
 }
 
+void renameWith(String silverpeasHome, String postfix) {
+  String buildLog = sh returnStdout: true, script: "ls ${silverpeasHome}/log | grep 'build-[0-9]\\+_[0-9]\\+.log'"
+  sh "mv ${silverpeasHome}/log/${buildLog.trim()} ${silverpeasHome}/log/build-${postfix}.log"
+}
 
 @NonCPS
 def silverpeasDistribMatching(version, wildfly) {
