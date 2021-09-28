@@ -411,6 +411,7 @@ sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${version}'/g" J
 """
   }
   sh """
+sed -i -e "s/<core.version>[0-9a-zA-Z.-]\\+/<core.version>${version}/g" pom.xml
 sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
 sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
