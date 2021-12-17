@@ -44,8 +44,8 @@ node {
       }
 
       stage('Publish Project Web Site') {
-        echo "Publish the web site for the release of Silverpeas ${buildToRelease.release}..."
-        fetchFromGithub 'Silverpeas-Project-Web-Site', branch
+        echo "Publish the web site for the release of Silverpeas ${params.VERSION}..."
+        fetchFromGithub 'Silverpeas-Project-Web-Site', 'master'
         def idx = wildflyVersion.indexOf('.')
         def wildflyMainVersion = wildflyVersion.substring(0, idx)
         def status
