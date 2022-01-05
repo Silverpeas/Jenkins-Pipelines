@@ -1,0 +1,600 @@
+/**
+ * JENKINS_HOST/job/pipeline-job/pipeline-syntax/gdsl
+ * https://gist.github.com/Mr-LiuDC/8a1fbe27e8fbd42361185b06085ef4c3
+ *
+ * All pipeline steps can be found here: https://www.jenkins.io/doc/pipeline/steps/
+ */
+
+// The global script scope
+def ctx = context(scope: scriptScope())
+
+// What things can be on the script scope
+contributor(ctx) {
+    method(name: 'pipeline', type: Object, params: [body: Closure], doc: 'Declarative pipeline')
+    property(name: 'params', type: 'org.jenkinsci.plugins.workflow.cps.ParamsVariable')
+    property(name: 'env', type: 'org.jenkinsci.plugins.workflow.cps.EnvActionImpl.Binder', doc: 'Environment variable')
+    property(name: 'currentBuild', type: 'org.jenkinsci.plugins.workflow.cps.RunWrapperBinder')
+    property(name: 'scm', type: 'org.jenkinsci.plugins.workflow.multibranch.SCMVar')
+}
+
+// Define default env vars
+def envVars = context(ctype: 'org.jenkinsci.plugins.workflow.cps.EnvActionImpl.Binder')
+
+contributor(envVars) {
+    property(name: 'BRANCH_NAME', type: String, doc: 'For a multibranch project, this will be set to the name of the branch being built, for example in case you wish to deploy to production from master but not from feature branches; if corresponding to some kind of change request, the name is generally arbitrary (refer to CHANGE_ID and CHANGE_TARGET)')
+    property(name: 'CHANGE_ID', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the change ID, such as a pull request number, if supported; else unset')
+    property(name: 'CHANGE_URL', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the change URL, if supported; else unset')
+    property(name: 'CHANGE_TITLE', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the title of the change, if supported; else unset')
+    property(name: 'CHANGE_AUTHOR', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the username of the author of the proposed change, if supported; else unset')
+    property(name: 'CHANGE_AUTHOR_DISPLAY_NAME', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the human name of the author, if supported; else unset')
+    property(name: 'CHANGE_AUTHOR_EMAIL', type: String, doc: 'For a multibranch project corresponding to some kind of change request, this will be set to the email address of the author, if supported; else unset')
+    property(name: 'CHANGE_TARGET', type: String, doc: 'rFo a multibranch project corresponding to some kind of change request, this will be set to the target or base branch to which the change could be merged, if supported; else unset')
+    property(name: 'BUILD_NUMBER', type: String, doc: 'The current build number, such as "153"')
+    property(name: 'BUILD_ID', type: String, doc: 'The current build ID, identical to BUILD_NUMBER for builds created in 1.597+, but a YYYY-MM-DD_hh-mm-ss timestamp for older builds')
+    property(name: 'BUILD_DISPLAY_NAME', type: String, doc: 'The display name of the current build, which is something like "#153" by default')
+    property(name: 'JOB_NAME', type: String, doc: 'Name of the project of this build, such as "foo" or "foo/bar"')
+    property(name: 'JOB_BASE_NAME', type: String, doc: 'Short Name of the project of this build stripping off folder paths, such as "foo" for "bar/foo"')
+    property(name: 'BUILD_TAG', type: String, doc: 'String of "jenkins-${JOB_NAME}-${BUILD_NUMBER}". All forward slashes (/) in the JOB_NAME are replaced with dashes (-). Convenient to put into a resource file, a jar file, etc for easier identification')
+    property(name: 'EXECUTOR_NUMBER', type: String, doc: 'The unique number that identifies the current executor (among executors of the same machine) that’s carrying out this build. This is the number you see in the "build executor status", except that the number starts from 0, not 1')
+    property(name: 'NODE_NAME', type: String, doc: 'Name of the agent if the build is on an agent, or "master" if run on master')
+    property(name: 'NODE_LABELS', type: String, doc: 'Whitespace-separated list of labels that the node is assigned')
+    property(name: 'WORKSPACE', type: String, doc: 'The absolute path of the directory assigned to the build as a workspace')
+    property(name: 'JENKINS_HOME', type: String, doc: 'The absolute path of the directory assigned on the master node for Jenkins to store data')
+    property(name: 'JENKINS_URL', type: String, doc: 'Full URL of Jenkins, like http://server:port/jenkins/ (note: only available if Jenkins URL set in system configuration)')
+    property(name: 'BUILD_URL', type: String, doc: 'Full URL of this build, like http://server:port/jenkins/job/foo/15/ (Jenkins URL must be set)')
+    property(name: 'JOB_URL', type: String, doc: 'Full URL of this job, like http://server:port/jenkins/job/foo/ (Jenkins URL must be set)')
+}
+
+// Define all the properties in current builds
+def currentBuild = context(ctype: 'org.jenkinsci.plugins.workflow.cps.RunWrapperBinder')
+
+contributor(currentBuild) {
+    property(name: 'number', type: Integer, doc: 'build number')
+    property(name: 'result', type: String, doc: 'typically SUCCESS, UNSTABLE, or FAILURE (may be null for an ongoing build)')
+    property(name: 'currentResult', type: String, doc: 'typically SUCCESS, UNSTABLE, or FAILURE (never null)')
+    method(name: 'resultIsBetterOrEqualTo', type: 'Boolean', params: [buildStatus: String], doc: 'Compares the current build result to the provided result string (SUCCESS, UNSTABLE, or FAILURE) and returns true if the current build result is better than or equal to the provided result')
+    method(name: 'resultIsWorseOrEqualTo', type: 'Boolean', params: [buildStatus: String], doc: 'Compares the current build result to the provided result string (SUCCESS, UNSTABLE, or FAILURE) and returns true if the current build result is worse than or equal to the provided result')
+    property(name: 'displayName', type: String, doc: 'normally #123 but sometimes set to, e.g., an SCM commit identifier')
+    property(name: 'description', type: String, doc: 'additional information about the build')
+    property(name: 'id', type: String, doc: 'normally number as a string')
+    property(name: 'timeInMillis', type: Long, doc: 'time since the epoch when the build was scheduled')
+    property(name: 'startTimeInMillis', type: Long, doc: 'time since the epoch when the build started running')
+    property(name: 'duration', type: Long, doc: 'duration of the build in milliseconds')
+    property(name: 'durationString', type: String, doc: 'a human-readable representation of the build duration')
+    property(name: 'previousBuild', type: 'org.jenkinsci.plugins.workflow.cps.RunWrapperBinder', doc: 'another similar object, or null')
+    property(name: 'nextBuild', type: 'org.jenkinsci.plugins.workflow.cps.RunWrapperBinder', doc: 'another similar object, or null')
+    property(name: 'absoluteUrl', type: String, doc: 'URL of build index page')
+    property(name: 'buildVariables', type: Map, doc: 'for a non-Pipeline downstream build, offers access to a map of defined build variables; for a Pipeline downstream build, any variables set globally on env')
+    property(name: 'changeSets', type: String, doc: 'a list of changeSets coming from distinct SCM checkouts; each has a kind and is a list of commits; each commit has a commitId, timestamp, msg, author, and affectedFiles each of which has an editType and path; the value will not generally be Serializable so you may only access it inside a method marked @NonCPS')
+    property(name: 'rawBuild', type: String, doc: 'a hudson.model.Run with further APIs, only for trusted libraries or administrator-approved scripts outside the sandbox; the value will not be Serializable so you may only access it inside a method marked @NonCPS')
+}
+
+def closures = context(scope: closureScope())
+
+contributor(closures) {
+    // What things can be inside a pipeline
+    if (enclosingCall("pipeline")) {
+        method(name: 'echo', type: Object, params: [message: String], doc: 'Print Message')
+        method(name: 'stages', type: Object, params: [body: Closure], doc: 'Stages')
+        method(name: 'agent', type: Object, params: [body: Closure], doc: 'Label expression to select agents')
+        method(name: 'parameters', type: Object, params: [body: Closure], doc: 'Job parameters')
+        method(name: 'options', type: Object, params: [body: Closure])
+        method(name: 'environment', type: Object, params: [body: Closure], doc: 'Setting environment variables for this pipeline')
+        method(name: 'triggers', type: Object, params: [body: Closure], doc: 'Build triggers')
+        method(name: 'post', type: Object, params: [body: Closure], doc: 'Post build actions')
+        method(name: 'jiraComment', type: Object, namedParams: [parameter(name: 'issueKey', type: String), parameter(name: 'body', type: String)], doc: 'JIRA: Add a comment to issue(s)')
+        method(name: 'jiraIssueSelector', type: Object, params: [:], doc: 'JIRA: Issue selector')
+        method(name: 'jiraIssueSelector', type: Object, namedParams: [parameter(name: 'issueSelector', type: Map)], doc: 'JIRA: Issue selector')
+        method(name: 'jiraSearch', type: Object, params: [jql: String], doc: 'JIRA: Search issues')
+
+        // Some others function
+        method(name: 'build', type: Object, params: [job: String], doc: 'Build a job')
+        method(name: 'build', type: Object, namedParams: [parameter(name: 'job', type: String), parameter(name: 'parameters', type: List), parameter(name: 'propagate', type: Boolean), parameter(name: 'quietPeriod', type: Integer), parameter(name: 'wait', type: Boolean)], doc: 'Build a job')
+        method(name: 'ec2', type: Object, namedParams: [parameter(name: 'cloud', type: String), parameter(name: 'template', type: String)], doc: 'Cloud template provisioning')
+        method(name: 'error', type: Object, params: [message: String], doc: 'Error signal')
+        method(name: 'input', type: Object, params: [message: String], doc: 'Wait for interactive input')
+        method(name: 'input', type: Object, namedParams: [parameter(name: 'message', type: String), parameter(name: 'id', type: String), parameter(name: 'ok', type: String), parameter(name: 'parameters', type: Map), parameter(name: 'submitter', type: String), parameter(name: 'submitterParameter', type: String)], doc: 'Wait for interactive input')
+        method(name: 'isUnix', type: Object, params: [:], doc: 'Checks if running on a Unix-like node')
+        method(name: 'library', type: Object, params: [identifier: String], doc: 'Load a shared library on the fly')
+        method(name: 'library', type: Object, namedParams: [parameter(name: 'identifier', type: String), parameter(name: 'changelog', type: 'java.lang.Boolean'), parameter(name: 'retriever', type: Map)], doc: 'Load a shared library on the fly')
+        method(name: 'libraryResource', type: Object, params: [resource: String], doc: 'Load a resource file from a shared library')
+        method(name: 'mail', type: Object, namedParams: [parameter(name: 'subject', type: String), parameter(name: 'body', type: String), parameter(name: 'bcc', type: String), parameter(name: 'cc', type: String), parameter(name: 'charset', type: String), parameter(name: 'from', type: String), parameter(name: 'mimeType', type: String), parameter(name: 'replyTo', type: String), parameter(name: 'to', type: String)], doc: 'Mail')
+        method(name: 'milestone', type: Object, params: [ordinal: Integer], doc: 'The milestone step forces all builds to go through in order')
+        method(name: 'milestone', type: Object, namedParams: [parameter(name: 'ordinal', type: Integer), parameter(name: 'label', type: String)], doc: 'The milestone step forces all builds to go through in order')
+        method(name: 'node', type: Object, params: [body: Closure], doc: 'Allocate node')
+        method(name: 'node', type: Object, params: [label: String, body: Closure], doc: 'Allocate node')
+        method(name: 'properties', type: Object, params: [properties: Map], doc: 'Set job properties')
+        method(name: 'readTrusted', type: Object, params: [path: String], doc: 'Read trusted file from SCM')
+        method(name: 'resolveScm', type: Object, namedParams: [parameter(name: 'source', type: Map), parameter(name: 'targets', type: Map), parameter(name: 'ignoreErrors', type: Boolean)], doc: 'Resolves an SCM from an SCM Source and a list of candidate target branch names')
+        method(name: 'retry', type: Object, params: [count: Integer, body: Closure], doc: 'Retry the body up to N times')
+        method(name: 'checkoutToSubdirectory', type: Object, params: [dir: String], doc: 'Directory to checkout')
+        method(name: 'script', type: Object, params: [body: Closure], doc: 'Run arbitrary Pipeline script')
+        method(name: 'sleep', type: Object, params: [time: Integer], doc: 'Sleep')
+        method(name: 'sleep', type: Object, namedParams: [parameter(name: 'time', type: Integer), parameter(name: 'unit', type: String, doc: 'java.util.concurrent.TimeUnit, Can be SECONDS, MINUTES, HOURS, DAYS')], doc: 'Sleep')
+        method(name: 'timeout', type: Object, params: [time: Integer, body: Closure], doc: 'Enforce time limit')
+        method(name: 'timeout', type: Object, params: [body: Closure], namedParams: [parameter(name: 'time', type: Integer), parameter(name: 'unit', type: String, doc: 'java.util.concurrent.TimeUnit, Can be SECONDS, MINUTES, HOURS, DAYS')], doc: 'Enforce time limit')
+        method(name: 'tool', type: Object, params: [name: String], doc: 'Use a tool from a predefined Tool Installation')
+        method(name: 'tool', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'type', type: String)], doc: 'Use a tool from a predefined Tool Installation')
+        method(name: 'waitUntil', type: Object, params: [body: Closure], doc: 'Wait for condition')
+        method(name: 'waitUntil', type: Map, namedParams: [parameter(name: 'initialRecurrencePeriod', type: Integer), parameter(name: 'quiet', type: Boolean)], params: [body: Closure], doc: 'Wait for condition')
+        method(name: 'withCredentials', type: Object, params: [bindings: Map, body: Closure], doc: 'Bind credentials to variables')
+        method(name: 'withCredentials', type: Object, params: [bindings: List, body: Closure], doc: 'Bind credentials to variables')
+        method(name: 'withCredentials', type: Object, params: [file: Closure, string: Closure], doc: 'Bind credentials to variables')
+        method(name: 'withEnv', type: Object, params: [overrides: Map, body: Closure], doc: 'Set environment variables')
+        method(name: 'ws', type: Object, params: [dir: String, body: Closure], doc: 'Allocate workspace')
+        method(name: 'catchError', type: Object, params: [body: Closure], doc: 'Advanced/Deprecated Catch error and set build result')
+        method(name: 'dockerFingerprintRun', type: Object, params: [containerId: String], doc: 'Advanced/Deprecated Record trace of a Docker image run in a container')
+        method(name: 'dockerFingerprintRun', type: Object, namedParams: [parameter(name: 'containerId', type: String), parameter(name: 'toolName', type: String)], doc: 'Record trace of a Docker image run in a container')
+        method(name: 'envVarsForTool', type: Object, namedParams: [parameter(name: 'toolId', type: String), parameter(name: 'toolVersion', type: String)], doc: 'Fetches the environment variables for a given tool in a list of \'FOO=bar\' strings suitable for the withEnv step')
+        method(name: 'getContext', type: Object, params: [type: Map], doc: 'Advanced/Deprecated Get contextual object from internal APIs')
+        method(name: 'withContext', type: Object, params: [context: Object, body: Closure], doc: 'Advanced/Deprecated Use contextual object from internal APIs within a block')
+
+    }
+
+    // The Credentials section
+    if (enclosingMethod("withCredentials")) {
+        method(name: 'sshUserPrivateKey', type: Object, namedParams: [parameter(name: 'credentialsId', type: String), parameter(name: 'keyFileVariable', type: String), parameter(name: 'passphraseVariable', type: String), parameter(name: 'usernameVariable', type: String)], 'doc': 'SSH User Private Key credentials')
+        method(name: 'certificate', type: Object, namedParams: [parameter(name: 'keystoreVariable', type: String), parameter(name: 'credentialsId', type: String), parameter(name: 'aliasVariable', type: String), parameter(name: 'passwordVariable', type: String)], 'doc': 'Certificate credentials')
+        method(name: 'dockerCert', type: Object, namedParams: [parameter(name: 'variable', type: String), parameter(name: 'credentialsId', type: String)], 'doc': 'Docker client certificate credentials')
+        method(name: 'file', type: Object, namedParams: [parameter(name: 'variable', type: String), parameter(name: 'credentialsId', type: String)], 'doc': 'Secret file credentials')
+        method(name: 'string', type: Object, namedParams: [parameter(name: 'variable', type: String), parameter(name: 'credentialsId', type: String)], 'doc': 'Secret text credentials')
+        method(name: 'usernameColonPassword', type: Object, namedParams: [parameter(name: 'variable', type: String), parameter(name: 'credentialsId', type: String)], 'doc': 'Username and password(conjoined) credentials')
+        method(name: 'usernamePassword', type: Object, namedParams: [parameter(name: 'usernameVariable', type: String), parameter(name: 'passwordVariable', type: String), parameter(name: 'credentialsId', type: String)], 'doc': 'Username and password(separated)  credentials')
+        method(name: 'gitUsernamePassword', type: Object, namedParams: [parameter(name: 'credentialsId', type: String), parameter(name: 'gitToolName', type: String)], 'doc': 'gitUsernamePassword of the credentials')
+    }
+
+    // The agent section
+    if (enclosingCall("agent")) {
+        property(name: 'any', 'doc': 'Use any available agent')
+        property(name: 'none', 'doc': 'No global agent defined')
+        method(name: 'node', type: Closure, 'doc': 'Same as label keyword with additional options such as customWorkspace')
+        method(name: 'label', type: String, params: [agent_name: String])
+        method(name: 'customerWorkspace', type: String, 'doc': 'Location of workspace')
+        method(name: 'docker', type: String, params: [docker_image: String])
+        method(name: 'docker', type: Object, params: [body: Closure])
+        method(name: 'dockerfile', type: Boolean, params: [use_dockerfile: Boolean])
+        method(name: 'kubernetes', type: Object, params: [body: Closure], doc: 'Kubernetes environment')
+        if (enclosingCall("docker")) {
+            method(name: 'image', type: String, params: [expr: String])
+            method(name: 'label', type: String, params: [expr: String])
+            method(name: 'alwaysPull', type: Boolean)
+        }
+        if (enclosingCall("kubernetes")) {
+            method(name: 'label', type: String, params: [agent_name: String])
+            method(name: 'cloud', type: String, params: [cloud_name: String])
+            method(name: 'defaultContainer', type: String, params: [default_container: String])
+            method(name: 'yaml', type: String, params: [kubernetes_yaml_definition: String])
+            method(name: 'yamlFile', type: String, params: [kubernetes_yaml_file: String])
+        }
+    }
+
+    if (enclosingCall("triggers")) {
+        method(name: 'cron', type: String, params: [expr: String], doc: 'Cron expression can be one of @daily, @hourly, etc')
+        method(name: 'upstream', type: Object, params: [name: String, build_status: Object])
+        method(name: 'pollSCM', type: String, params: [expr: String])
+        method(name: 'bitbucketPush')
+        method(name: 'GenericTrigger', type: Object, doc: 'Generic Webhook Trigger',
+                namedParams: [parameter(name: 'genericVariables', type: List, doc: 'Request body'),
+                              parameter(name: 'genericRequestVariables', type: List, doc: 'Request query parameters'),
+                              parameter(name: 'genericHeaderVariables', type: List, doc: 'Request headers'),
+                              parameter(name: 'token', type: String, doc: 'Webhook trigger token'),
+                              parameter(name: 'tokenCredentialId', type: String, doc: 'CredentialId'),
+                              parameter(name: 'causeString', type: String, doc: 'Build cause'),
+                              parameter(name: 'printContributedVariables', type: Boolean, doc: ''),
+                              parameter(name: 'printPostContent', type: Boolean, doc: ''),
+                              parameter(name: 'silentResponse', type: Boolean, doc: ''),
+                              parameter(name: 'regexpFilterText', type: String, doc: ''),
+                              parameter(name: 'regexpFilterExpression', type: String, doc: ''),
+                ])
+    }
+
+    // The parameters section
+    if (enclosingCall("parameters")) {
+        method(name: 'password', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'defaultValue', type: String), parameter(name: 'description', type: String)])
+        method(name: 'string', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'defaultValue', type: String), parameter(name: 'description', type: String)])
+        method(name: 'choice', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'choices', type: List), parameter(name: 'description', type: String)])
+        method(name: 'booleanParam', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'defaultValue', type: Boolean), parameter(name: 'description', type: String)])
+    }
+
+    // The options section
+    if (enclosingCall("options")) {
+        method(name: 'buildDiscarder', type: Object, params: [logRotator: String], doc: 'Persist artifacts and console output for the specific number of recent Pipeline runs')
+        if (enclosingMethod('buildDiscarder')) {
+            method(name: 'logRotator', type: Object, namedParams: [parameter(name: 'numToKeepStr', type: String), parameter(name: 'daysToKeepStr', type: String), parameter(name: 'artifactNumToKeepStr', type: String), parameter(name: 'artifactDaysToKeepStr', type: String)])
+        }
+        method(name: 'timestamps')
+        method(name: 'skipStagesAfterUnstable')
+        method(name: 'skipDefaultCheckout')
+        method(name: 'preserveStashes', type: Object, namedParams: [parameter(name: 'buildCount', type: Integer)], doc: 'Preserve stashes from completed builds, for use with stage restarting')
+        method(name: 'parallelsAlwaysFailFast', doc: 'Set failfast true for all subsequent parallel stages in the pipeline')
+        method(name: 'disableResume', doc: 'Do not allow the pipeline to resume if the controller restarts')
+        method(name: 'disableConcurrentBuilds', doc: 'Disallow concurrent executions of the Pipeline')
+        method(name: 'retry', type: Object, params: [count: Integer], doc: 'Retry the pipeline up to N times')
+        method(name: 'timeout', type: Object, namedParams: [parameter(name: 'time', type: Integer), parameter(name: 'unit', type: String)])
+    }
+
+    // Inside stages can be, stage or stage('Name')
+    if (enclosingCall("stages")) {
+        method(name: 'stage', type: Object, params: [name: String, body: Closure], doc: 'Stage')
+        method(name: 'stage', type: Object, params: [body: Closure], namedParams: [parameter(name: 'name', type: String), parameter(name: 'concurrency', type: Integer)], doc: 'Stage')
+    }
+
+    // The stage section
+    if (enclosingCall("stage")) {
+        method(name: 'agent', type: Object, params: [body: Closure], doc: 'Label expression to select agents')
+        method(name: 'steps', type: Object, params: [body: Closure], doc: 'Steps to execute on stage')
+        method(name: 'post', type: Object, params: [body: Closure], doc: 'Post actions can be executed on a per-stage basis as well')
+        method(name: 'parallel', type: Object, params: [body: Closure], doc: 'Execute stage in parallel')
+        method(name: 'when', type: Object, params: [body: Closure], doc: 'Whether the stage should be executed depending on the given condition')
+        method(name: 'failFast', type: Object, params: [fail: boolean], doc: 'Set failFast true for all subsequent parallel steps in the stage')
+        // Only inside when condition
+        if (enclosingCall('when')) {
+            method(name: 'branch', type: String, params: [branch: String], doc: 'Branch pattern (ANT style)')
+            method(name: 'buildingTag', doc: 'Execute the stage when the build is building a tag')
+            method(name: 'changelog', type: String, params: [changelog: String], doc: 'Execute the stage if the build’s SCM changelog contains a given regular expression pattern')
+            method(name: 'changeset', type: String, params: [changeset: String], doc: 'Execute the stage if the build’s SCM changeset contains one or more files matching the given pattern')
+            method(name: 'changeRequest', doc: 'Executes the stage if the current build is for a "change request" (a.k.a. Pull Request on GitHub and Bitbucket, Merge Request on GitLab, Change in Gerrit, etc.)')
+            method(name: 'changeRequest', doc: 'Executes the stage if the current build is for a "change request" (a.k.a. Pull Request on GitHub and Bitbucket, Merge Request on GitLab, Change in Gerrit, etc.)',
+                    namedParams: [parameter(name: 'id', type: String, doc: ''),
+                                  parameter(name: 'target', type: String, doc: ''),
+                                  parameter(name: 'branch', type: String, doc: ''),
+                                  parameter(name: 'fork', type: String, doc: ''),
+                                  parameter(name: 'url', type: String, doc: ''),
+                                  parameter(name: 'title', type: String, doc: ''),
+                                  parameter(name: 'author', type: String, doc: ''),
+                                  parameter(name: 'authorDisplayName', type: String, doc: ''),
+                                  parameter(name: 'authorEmail', type: String, doc: ''),
+                                  parameter(name: 'comparator', type: String, doc: 'Optional parameter can be EQUALS, GLOB, REGEXP'),
+                    ])
+            method(name: 'environment', type: Object, doc: 'Execute the stage when the specified environment variable is set to the given value',
+                    namedParams: [
+                            parameter(name: 'name', type: String), parameter(name: 'value', type: String)
+                    ])
+            method(name: 'equals', type: String, params: [expected: Object, actual: Object], doc: 'Execute the stage when the expected value is equal to the actual value')
+            method(name: 'expression', type: Object, params: [body: Closure], doc: 'Execute the stage when the specified Groovy expression evaluates to true')
+            method(name: 'tag', type: Object, params: [tag: String], doc: 'Execute the stage if the TAG_NAME variable matches the given pattern')
+            method(name: 'tag', type: Object, params: [pattern: String, comparator: String], doc: 'Execute the stage if the TAG_NAME variable matches the given pattern')
+            method(name: 'not', type: Object, params: [body: Closure], doc: 'Execute the stage when the nested condition is false')
+            method(name: 'allOf', type: Object, params: [body: Closure], doc: 'Execute the stage when all of the nested conditions are true.')
+            method(name: 'anyOf', type: Object, params: [body: Closure], doc: 'Execute the stage when at least one of the nested conditions is true')
+            method(name: 'triggeredBy', type: Object, params: [triggeredBy: String], doc: 'Execute the stage when the current build has been triggered by the param given')
+        }
+    }
+
+    // Only inside steps
+    if (enclosingCall("steps") || enclosingCall("always") || enclosingCall("success") ||
+            enclosingCall("failure") || enclosingCall("unstable") || enclosingCall("changed")) {
+        method(name: 'timestamp', type: Object, params: [body: Closure], doc: 'Timestamps')
+        method(name: 'bat', type: Object, params: [script: String], doc: 'Windows Batch Script')
+        method(name: 'bat', type: Object, namedParams: [parameter(name: 'script', type: String), parameter(name: 'encoding', type: String), parameter(name: 'returnStatus', type: Boolean), parameter(name: 'returnStdout', type: Boolean)], doc: 'Windows Batch Script')
+        method(name: 'checkout', type: Object, params: [scm: Map], doc: 'General SCM')
+        method(name: 'checkout', type: Object, namedParams: [parameter(name: 'scm', type: Map), parameter(name: 'changelog', type: Boolean), parameter(name: 'poll', type: Boolean)], doc: 'General SCM')
+        method(name: 'deleteDir', type: Object, params: [:], doc: 'Recursively delete the current directory from the workspace')
+        method(name: 'dir', type: Object, params: [path: String, body: Closure], doc: 'Change current directory')
+        method(name: 'fileExists', type: Object, params: [file: String], doc: 'Verify if file exists in workspace')
+        method(name: 'git', type: Object, params: [url: String], doc: 'Git')
+        method(name: 'git', type: Object, namedParams: [parameter(name: 'url', type: String), parameter(name: 'branch', type: String), parameter(name: 'changelog', type: Boolean), parameter(name: 'credentialsId', type: String), parameter(name: 'poll', type: Boolean)], doc: 'Git')
+        method(name: 'junit', type: Object, params: [testResults: String], doc: 'Archive JUnit-formatted test results')
+        method(name: 'junit', type: Object, namedParams: [parameter(name: 'testResults', type: String), parameter(name: 'allowEmptyResults', type: Boolean), parameter(name: 'healthScaleFactor', type: 'double'), parameter(name: 'keepLongStdio', type: Boolean), parameter(name: 'testDataPublishers', type: Map)], doc: 'Archive JUnit-formatted test results')
+        method(name: 'load', type: Object, params: [path: String], doc: 'Evaluate a Groovy source file into the Pipeline script')
+        method(name: 'powershell', type: Object, params: [script: String], doc: 'PowerShell Script')
+        method(name: 'powershell', type: Object, namedParams: [parameter(name: 'script', type: String), parameter(name: 'encoding', type: String), parameter(name: 'returnStatus', type: Boolean), parameter(name: 'returnStdout', type: Boolean)], doc: 'PowerShell Script')
+        method(name: 'publishHTML', type: Object, params: [target: Map], doc: 'Publish HTML reports')
+        method(name: 'pwd', type: Object, params: [:], doc: 'Determine current directory')
+        method(name: 'pwd', type: Object, namedParams: [parameter(name: 'tmp', type: Boolean)], doc: 'Determine current directory')
+        method(name: 'readFile', type: Object, params: [file: String], doc: 'Read file from workspace')
+        method(name: 'readFile', type: Object, namedParams: [parameter(name: 'file', type: String), parameter(name: 'encoding', type: String)], doc: 'Read file from workspace')
+        method(name: 'sh', type: Object, params: [script: String], doc: 'Shell Script')
+        method(name: 'cleanWs', doc: 'Clean workspace')
+        method(name: 'sh', type: Object, namedParams: [parameter(name: 'script', type: String), parameter(name: 'encoding', type: String), parameter(name: 'returnStatus', type: Boolean), parameter(name: 'returnStdout', type: Boolean)], doc: 'Shell Script')
+        method(name: 'stash', type: Object, params: [name: String], doc: 'Stash some files to be used later in the build')
+        method(name: 'stash', type: Object, namedParams: [parameter(name: 'name', type: String), parameter(name: 'allowEmpty', type: Boolean), parameter(name: 'excludes', type: String), parameter(name: 'includes', type: String), parameter(name: 'useDefaultExcludes', type: Boolean)], doc: 'Stash some files to be used later in the build')
+        method(name: 'tm', type: Object, params: [stringWithMacro: String], doc: 'Expand a string containing macros')
+        method(name: 'unstash', type: Object, params: [name: String], doc: 'Restore files previously stashed')
+        method(name: 'validateDeclarativePipeline', type: Object, params: [path: String], doc: 'Validate a file containing a Declarative Pipeline')
+        method(name: 'wrap', type: Object, params: [delegate: Map, body: Closure], doc: 'General Build Wrapper')
+        method(name: 'writeFile', type: Object, namedParams: [parameter(name: 'file', type: String), parameter(name: 'text', type: String), parameter(name: 'encoding', type: String)], doc: 'Write file to workspace')
+        method(name: 'archive', type: Object, params: [includes: String], doc: 'Advanced/Deprecated Archive artifacts')
+        method(name: 'archive', type: Object, namedParams: [parameter(name: 'includes', type: String), parameter(name: 'excludes', type: String)], doc: 'Archive artifacts')
+        method(name: 'dockerFingerprintFrom', type: Object, namedParams: [parameter(name: 'dockerfile', type: String), parameter(name: 'image', type: String), parameter(name: 'buildArgs', type: Map), parameter(name: 'toolName', type: String)], doc: 'Record trace of a Docker image used in FROM')
+        method(name: 'unarchive', type: Object, params: [:], doc: 'Advanced/Deprecated Copy archived artifacts into the workspace')
+        method(name: 'unarchive', type: Object, namedParams: [parameter(name: 'mapping', type: Map)], doc: 'Copy archived artifacts into the workspace')
+        method(name: 'withDockerContainer', type: Object, params: [image: String, body: Closure], doc: 'Advanced/Deprecated Run build steps inside a Docker container')
+        method(name: 'withDockerContainer', type: Object, params: [body: Closure], namedParams: [parameter(name: 'image', type: String), parameter(name: 'args', type: String), parameter(name: 'toolName', type: String)], doc: 'Run build steps inside a Docker container')
+        method(name: 'withDockerRegistry', type: Object, params: [registry: Map, body: Closure], doc: 'Advanced/Deprecated Sets up Docker registry endpoint')
+        method(name: 'withDockerServer', type: Object, params: [server: Map, body: Closure], doc: 'Advanced/Deprecated Sets up Docker server endpoint')
+        method(name: 'parallel', type: Object, params: [body: Map], doc: 'Execute task in parallel')
+        method(name: 'parallel', type: Object, params: [body: Closure], doc: 'Execute task in parallel')
+        method(name: 'parallel', type: Object, params: ['closures': Map], doc: 'Execute in parallel')
+        method(name: 'parallel', type: Object, namedParams: [parameter(name: 'closures', type: Map), parameter(name: 'failFast', type: Boolean),], doc: 'Execute in parallel')
+        method(name: 'aliyunOSSUpload', type: Object, doc: 'Upload files or directories to aliyun OSS',
+                namedParams: [parameter(name: 'endpoint', type: String),
+                              parameter(name: 'accessKeyId', type: String),
+                              parameter(name: 'accessKeySecret', type: String),
+                              parameter(name: 'bucketName', type: String),
+                              parameter(name: 'localPath', type: String),
+                              parameter(name: 'remotePath', type: String),
+                              parameter(name: 'maxRetries', type: String)])
+        method(name: 'archiveArtifacts', type: Object,
+                namedParams: [parameter(name: 'artifacts', type: String, doc: 'Use comma separator to set a list of patterns'),
+                              parameter(name: 'excludes', type: String, doc: 'Use comma separator to set a list of patterns'),
+                              parameter(name: 'allowEmptyArchive', type: Boolean),
+                              parameter(name: 'caseSensitive', type: Boolean),
+                              parameter(name: 'defaultExcludes', type: Boolean),
+                              parameter(name: 'fingerprint', type: Boolean),
+                              parameter(name: 'followSymlinks', type: Boolean),
+                              parameter(name: 'onlyIfSuccessful', type: Boolean)
+                ])
+        method(name: 'buildName', type: Object, params: [buildName: String], doc: 'Build name')
+        method(name: 'buildDescription', type: Object, params: [buildDescription: String], doc: 'Build description')
+
+        // https://www.jenkins.io/doc/pipeline/steps/pipeline-utility-steps/
+        method(name: 'compareVersions', type: Object, doc: 'Compare two version number strings, <a href="https://www.jenkins.io/doc/pipeline/steps/pipeline-utility-steps/">for more information</a>',
+                namedParams: [parameter(name: 'v1', type: String, doc: 'The version number string that will be compared to v2'),
+                              parameter(name: 'v2', type: String, doc: 'The version number string that v1 will be compared to'),
+                              parameter(name: 'failIfEmpty', type: Boolean, doc: '(optional)Fail the build if v1 or v2 is empty or null')
+                ])
+        method(name: 'findFiles', type: Object, doc: 'Find files in the workspace, <a href="https://www.jenkins.io/doc/pipeline/steps/pipeline-utility-steps/#findfiles-find-files-in-the-workspace">for more information</a>',
+                namedParams: [parameter(name: 'excludes', type: String, doc: '(optional)File to exclude'),
+                              parameter(name: 'glob', type: String, doc: '(optional)Ant style pattern of file paths that should match')
+                ])
+        method(name: 'nodesByLabel', type: Object, doc: 'List of nodes by Label, by default excludes offline nodes',
+                namedParams: [parameter(name: 'label', type: String),
+                              parameter(name: 'offline', type: Boolean)
+                ])
+        method(name: 'prependToFile', type: Object, doc: 'Create a file (if not already exist) in the workspace, and prepend given content to that file',
+                namedParams: [parameter(name: 'file', type: String),
+                              parameter(name: 'content', type: String)
+                ])
+        method(name: 'readCSV', type: Object, doc: 'Read content from a CSV file in the workspace',
+                namedParams: [parameter(name: 'file', type: String, doc: '(optional)CSV file path, You can only specify file or text, not both in the same invocation'),
+                              parameter(name: 'format', type: String, doc: '(optional)CSV format'),
+                              parameter(name: 'text', type: String, doc: '(optional)CSV formatted data')
+                ])
+        method(name: 'readJSON', type: Object, doc: 'Read JSON from files in the workspace',
+                namedParams: [parameter(name: 'file', type: String, doc: '(optional)Json file path, You can only specify file or text, not both in the same invocation'),
+                              parameter(name: 'returnPojo', type: Boolean, doc: '(optional)Transforms the output into a POJO type (LinkedHashMap or ArrayList) before returning it. By default deactivated (false), and a JSON object (JSONObject or JSONArray from json-lib) is returned'),
+                              parameter(name: 'text', type: String, doc: '(optional)Json string, You can only specify file or text, not both in the same invocation')
+                ])
+        method(name: 'readManifest', type: Object, doc: 'Read a Jar Manifest',
+                namedParams: [parameter(name: 'file', type: String, doc: '(optional)Jar file path extension can be .jar, .war or .ear, You can only specify file or text, not both in the same invocation'),
+                              parameter(name: 'text', type: String, doc: '(optional)Text containing the manifest data')
+                ])
+        method(name: 'readMavenPom', type: Object, doc: 'Read a maven project file',
+                namedParams: [parameter(name: 'file', type: String, doc: 'Optional path to the file to read. If left empty the step will try to read pom.xml in the current working directory.'),
+                ])
+        method(name: 'readProperties', type: Object, doc: 'Read properties from files in the workspace or text',
+                namedParams: [parameter(name: 'file', type: String, doc: 'Optional path to a file in the workspace to read the properties from, You can only specify file or text, not both in the same invocation'),
+                              parameter(name: 'text', type: String, doc: 'Optional String containing properties formatted data'),
+                              parameter(name: 'defaults', type: Map, doc: 'Optional Map containing default key/values'),
+                              parameter(name: 'interpolate', type: Boolean, doc: 'Flag to indicate if the properties should be interpolated or not'),
+                ])
+        method(name: 'readYaml', type: Object, doc: 'Read yaml from files in the workspace or text',
+                namedParams: [parameter(name: 'file', type: String, doc: 'Optional path to a file in the workspace to read the YAML data from, You can only specify file or text, not both in the same invocation'),
+                              parameter(name: 'text', type: String, doc: 'Optional String containing YAML formatted data')
+                ])
+        method(name: 'sha1', type: Object, doc: 'Compute the SHA1 of a given file', params: [file: String])
+        method(name: 'sha256', type: Object, doc: 'Compute the SHA256 of a given file', params: [file: String])
+        method(name: 'tee', type: Object, doc: 'Tee output to file', params: [file: String])
+        method(name: 'touch', type: Object, doc: 'Create a file (if not already exist) in the workspace, and set the timestamp',
+                namedParams: [parameter(name: 'file', type: String, doc: 'The path to the file to touch'),
+                              parameter(name: 'timestamp', type: Long, doc: 'Optional timestamp to set (number of ms since the epoc), leave empty for current system time')
+                ])
+        method(name: 'unzip', type: Object, doc: '<a href="https://www.jenkins.io/doc/pipeline/steps/pipeline-utility-steps/#unzip-extract-zip-file">Extract Zip file</a>',
+                namedParams: [parameter(name: 'zipFile', type: String, doc: 'The name/path of the zip file to extract'),
+                              parameter(name: 'dir', type: String, doc: 'Optional path of the base directory to extract the zip to. Leave empty to extract in the current working directory'),
+                              parameter(name: 'charset', type: String, doc: 'Optional specify which Charset you wish to use eg. UTF-8'),
+                              parameter(name: 'glob', type: String, doc: 'Optional ant style pattern of files to extract from the zip. Leave empty to include all files and directories'),
+                              parameter(name: 'quiet', type: Boolean, doc: 'Optional suppress the verbose output that logs every single file that is dealt with'),
+                              parameter(name: 'read', type: Boolean, doc: 'Optional read the content of the files into a Map instead of writing them to the workspace'),
+                              parameter(name: 'test', type: Boolean, doc: 'Optional test the integrity of the archive instead of extracting it')
+                ])
+        method(name: 'verifySha1', type: Object, doc: 'Verify the SHA1 of a given file', params: [file: String, hash: String])
+        method(name: 'verifySha256', type: Object, doc: 'Verify the SHA256 of a given file', params: [file: String, hash: String])
+        method(name: 'writeCSV', type: Object, doc: 'Write content to a CSV file in the workspace',
+                namedParams: [parameter(name: 'records', type: String, doc: 'The list of CSVRecord instances to write'),
+                              parameter(name: 'file', type: String, doc: 'Path to a file in the workspace to write to'),
+                              parameter(name: 'format', type: String, doc: 'See CSVFormat for details'),
+                ])
+        method(name: 'writeJSON', type: Object, doc: 'Write JSON to a file in the workspace',
+                namedParams: [parameter(name: 'json', type: String, doc: 'The object to write. Can either be a JSON instance or another Map/List implementation. Both are supported'),
+                              parameter(name: 'file', type: String, doc: 'Optional path to a file in the workspace to write to. If provided, then returnText must be false or omitted. It is required that either file is provided, or returnText is true'),
+                              parameter(name: 'pretty', type: Integer, doc: 'Optional prettify the output with this number of spaces added to each level of indentation'),
+                              parameter(name: 'returnText', type: Boolean, doc: 'Optional return the JSON as a string instead of writing it to a file. Defaults to false. If true, then file must not be provided'),
+                ])
+        method(name: 'writeMavenPom', type: Object, doc: 'Write a maven project file',
+                namedParams: [
+                        parameter(name: 'model', type: String, doc: 'The Model object to write'),
+                        parameter(name: 'file', type: String, doc: ' Optional path to a file in the workspace to write to. If left empty the step will write to pom.xml in the current working directory')
+                ])
+        method(name: 'writeYaml', type: Object, doc: 'Write a yaml from an object or objects',
+                namedParams: [
+                        parameter(name: 'file', type: String, doc: 'Optional path to a file in the workspace to write the YAML datas to. If provided, then returnText must be false or omitted. It is required that either file is provided, or returnText is true'),
+                        parameter(name: 'data', type: String, doc: 'An Optional Object containing the data to be serialized. You must specify data or datas, but not both in the same invocation'),
+                        parameter(name: 'datas', type: String, doc: 'An Optional Collection containing the datas to be serialized as several YAML documents. You must specify data or datas, but not both in the same invocation'),
+                        parameter(name: 'charset', type: String, doc: 'Optionally specify the charset to use when writing the file. Defaults to UTF-8 if nothing else is specified'),
+                        parameter(name: 'overwrite', type: String, doc: 'Allow existing files to be overwritten. Defaults to false'),
+                        parameter(name: 'returnText', type: String, doc: 'Return the YAML as a string instead of writing it to a file. Defaults to false. If true, then file, charset, and overwrite must not be provided. It is required that either file is provided, or returnText is true')
+                ])
+        method(name: 'zip', type: Object, doc: '<a href="https://www.jenkins.io/doc/pipeline/steps/pipeline-utility-steps/#zip-create-zip-file">Create a zip file of content in the workspace</a>',
+                namedParams: [parameter(name: 'zipFile', type: String, doc: 'The name/path of the zip file to create'),
+                              parameter(name: 'dir', type: String, doc: '(optional)The path of the base directory to create the zip from'),
+                              parameter(name: 'exclude ', type: String, doc: '(optional)Ant style pattern of files to exclude from the zip'),
+                              parameter(name: 'glob', type: String, doc: '(optional)Ant style pattern of files to include in the zip'),
+                              parameter(name: 'archive ', type: Boolean, doc: '(optional)If the zip file should be archived as an artifact of the current build'),
+                              parameter(name: 'overwrite', type: Boolean, doc: '(optional)If the zip file should be overwritten in case of already existing a file with the same name')
+                ])
+
+        // https://www.jenkins.io/doc/pipeline/steps/ssh-steps/
+        method(name: 'sshCommand', type: Object, doc: 'SSH steps, This step executes given command on remote node and responds with output. <a href="https://github.com/jenkinsci/ssh-steps-plugin">For more information</a>',
+                namedParams: [parameter(name: 'remote', type: Map, doc: 'Host config to run the command on'),
+                              parameter(name: 'command', type: String, doc: 'Shell command to run'),
+                              parameter(name: 'sudo', type: Boolean),
+                              parameter(name: 'dryRun', type: Boolean),
+                              parameter(name: 'failOnError', type: Boolean)
+                ])
+        method(name: 'sshScript', type: Object, doc: 'SSH steps, This step executes given script(file) on remote node and responds with output. <a href="https://github.com/jenkinsci/ssh-steps-plugin">For more information</a>',
+                namedParams: [parameter(name: 'remote', type: Map, doc: 'Host config to run the command on'),
+                              parameter(name: 'script', type: String, doc: 'Shell script to run'),
+                              parameter(name: 'dryRun', type: Boolean),
+                              parameter(name: 'failOnError', type: Boolean)
+                ])
+        method(name: 'sshPut', type: Object, doc: 'SSH steps, Put a file or directory into the remote host. <a href="https://github.com/jenkinsci/ssh-steps-plugin">For more information</a>',
+                namedParams: [parameter(name: 'remote', type: Map, doc: 'Host config to run the command on'),
+                              parameter(name: 'from', type: String, doc: 'File or directory path from the workspace'),
+                              parameter(name: 'into', type: String, doc: 'File or directory path on the remote node'),
+                              parameter(name: 'filterBy', type: String, doc: 'Optional, Defaults to name. Put files by a file filter. Possible values are params on the java File object'),
+                              parameter(name: 'filterRegex', type: String, doc: 'Optional, Put files by a file regex (Groovy syntax)'),
+                              parameter(name: 'dryRun', type: Boolean),
+                              parameter(name: 'failOnError', type: Boolean)
+                ])
+        method(name: 'sshGet', type: Object, doc: 'SSH steps, Get a file or directory from the remote host. <a href="https://github.com/jenkinsci/ssh-steps-plugin">For more information</a>',
+                namedParams: [parameter(name: 'remote', type: Map, doc: 'Host config to run the command on'),
+                              parameter(name: 'from', type: String, doc: 'File or directory path from the workspace'),
+                              parameter(name: 'into', type: String, doc: 'File or directory path on the remote node'),
+                              parameter(name: 'dryRun', type: Boolean),
+                              parameter(name: 'failOnError', type: Boolean),
+                              parameter(name: 'filterBy', type: String, doc: 'Optional, Defaults to name. Put files by a file filter. Possible values are params on the java File object'),
+                              parameter(name: 'filterRegex', type: String, doc: 'Optional, Put files by a file regex (Groovy syntax)')
+                ])
+        method(name: 'sshRemove', type: Object, doc: 'SSH steps, Remove a file or directory on the remote host. <a href="https://github.com/jenkinsci/ssh-steps-plugin">For more information</a>',
+                namedParams: [parameter(name: 'remote', type: Map, doc: 'Host config to run the command on'),
+                              parameter(name: 'path', type: String, doc: 'File or directory path on the remote node'),
+                              parameter(name: 'dryRun', type: Boolean),
+                              parameter(name: 'failOnError', type: Boolean)
+                ])
+
+        // https://www.jenkins.io/doc/pipeline/steps/http_request/
+        method(name: 'httpRequest', type: Object, doc: 'Perform an HTTP Request and return a response object, <a href="https://www.jenkins.io/doc/pipeline/steps/http_request/>for more information</a>',
+                namedParams: [
+                        parameter(name: 'url', type: String, doc: 'Specify an URL to be requested'),
+                        parameter(name: 'acceptType', type: String, doc: '(Optional)HTTP content type to accept'),
+                        parameter(name: 'authentication', type: String, doc: '(Optional)Authentication that will be used before this request. Authentications are created in global configuration under a key name that is selected here'),
+                        parameter(name: 'consoleLogResponseBody', type: Boolean, doc: '(Optional)This allows to turn off writing the response body to the log'),
+                        parameter(name: 'contentType', type: String, doc: '(Optional)HTTP content type the request is using'),
+                        parameter(name: 'customHeaders', type: List, properties: [params: ['name': String, value: String, maskValue: Boolean]], doc: '(Optional)HTTP request custom headers'),
+                        parameter(name: 'httpMode', type: String, doc: '(Optional)The HTTP mode of the request, such as GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH'),
+                        parameter(name: 'httpProxy', type: String, doc: '(Optional)Use a proxy to process the HTTP request, Example: http://mycorpproxy:8080'),
+                        parameter(name: 'proxyAuthentication', type: String, doc: '(Optional)Proxy authentication'),
+                        parameter(name: 'ignoreSslErrors', type: Boolean, doc: '(Optional)If set to true, a request with HTTPS will trust in the certificate even when it is invalid or expired'),
+                        parameter(name: 'multipartName', type: String, doc: '(Optional)Multipart entity name used in the Content-Disposition header in conjunction with the upload file path'),
+                        parameter(name: 'outputFile', type: String, doc: '(Optional)Name of the file in which to write response data'),
+                        parameter(name: 'quiet', type: Boolean, doc: '(Optional)This allows to turn off all logging output'),
+                        parameter(name: 'requestBody', type: String, doc: '(Optional)The raw body of the request, parameters will be resolved'),
+                        parameter(name: 'responseHandle', type: String, doc: '(Optional)How response should be handled, such as NONE, LEAVE_OPEN, STRING'),
+                        parameter(name: 'timeout', type: Integer, doc: '(Optional)Specify a timeout value in seconds (default is 0 which implies no timeout)'),
+                        parameter(name: 'uploadFile', type: String, doc: '(Optional)Path to the upload file, relative to build workspace or absolute path'),
+                        parameter(name: 'useNtlm', type: Boolean, doc: 'Optional parameter'),
+                        parameter(name: 'useSystemProperties', type: Boolean, doc: '(Optional)Use system properties to configure the client'),
+                        parameter(name: 'validResponseCodes', type: String, doc: '(Optional)Configure response code to mark an execution as success. Multiple codes separated by comma(,) e.g. "200,404,500" or format From:To e.g. "100:399", The default (as if empty) is to fail to 4xx and 5xx'),
+                        parameter(name: 'validResponseContent', type: String, doc: '(Optional)If set response must contain this string to mark an execution as success'),
+                        parameter(name: 'wrapAsMultipart', type: Boolean, doc: '(Optional)If set to false an upload file will be set directly as body of the request and will not be wrapped as multipart/form-data.')
+                ])
+
+        // https://www.jenkins.io/doc/pipeline/steps/file-operations/
+        method(name: 'fileOperations', type: Object, params: [bindings: List], doc: 'File or folder operations')
+        if (enclosingMethod('fileOperations')) {
+            method(name: 'fileCopyOperation', type: Object, doc: 'File copy operations',
+                    namedParams: [
+                            parameter(name: 'includes', type: String, doc: 'Files included to copy, this supports ant-style file pattern ex: target/*/final*.xml'),
+                            parameter(name: 'excludes', type: String, doc: 'Files excluded from copying, this supports ant-style file pattern ex: target/*/final*.xml'),
+                            parameter(name: 'targetLocation', type: String, doc: 'Destination folder location to copy the files. Base directory is workspace.'),
+                            parameter(name: 'flattenFiles', type: Boolean, doc: 'If selected, files are copied directly to the target location without preserving source file sub-directory structure.'),
+                            parameter(name: 'renameFiles', type: Boolean, doc: 'Selecting this option allows the output file name to be manipulated to avoid file name clashes.'),
+                            parameter(name: 'sourceCaptureExpression', type: String, doc: 'Java-style regular expression that is run against the full path of each matching source file.'),
+                            parameter(name: 'targetNameExpression', type: String, doc: 'An expression that provides the desired target file name. '),
+                    ])
+            method(name: 'fileCreateOperation', type: Object, doc: 'Create file in workspace',
+                    namedParams: [
+                            parameter(name: 'fileName', type: String, doc: 'Path and Name of the file to be created in workspace.'),
+                            parameter(name: 'fileContent', type: String, doc: 'File content to be created, use environment variables where needed.')
+                    ])
+            method(name: 'fileDeleteOperation', type: Object, doc: 'Delete file',
+                    namedParams: [
+                            parameter(name: 'includes', type: String, doc: 'Files included to delete, this supports ant-style file pattern ex: target/*/final*.xml'),
+                            parameter(name: 'excludes', type: String, doc: 'Files excluded from deleting, this supports ant-style file pattern ex: target/*/final*.xml')
+                    ])
+            method(name: 'fileDownloadOperation', type: Object, doc: 'Download file',
+                    namedParams: [
+                            parameter(name: 'url', type: String, doc: 'Url of the file to download.'),
+                            parameter(name: 'userName', type: String, doc: ''),
+                            parameter(name: 'password', type: String, doc: ''),
+                            parameter(name: 'targetLocation', type: String, doc: 'Destination location to download the file. Base directory is workspace.'),
+                            parameter(name: 'targetFileName', type: String, doc: ''),
+                            parameter(name: 'proxyHost', type: String, doc: ''),
+                            parameter(name: 'proxyPort', type: String, doc: ''),
+                    ])
+            method(name: 'fileJoinOperation', type: Object, doc: 'File join operation',
+                    namedParams: [
+                            parameter(name: 'sourceFile', type: String, doc: 'Source file path to copy the content.'),
+                            parameter(name: 'targetFile', type: String, doc: 'Target file path to append the content from source file.'),
+                    ])
+            method(name: 'filePropertiesToJsonOperation', type: Object, doc: 'Java properties file to json file operation',
+                    namedParams: [
+                            parameter(name: 'sourceFile', type: String, doc: 'Source file path of properties.'),
+                            parameter(name: 'targetFile', type: String, doc: 'Target file path to create or update with json data.'),
+                    ])
+            method(name: 'fileRenameOperation', type: Object, doc: 'File rename operation',
+                    namedParams: [
+                            parameter(name: 'source', type: String, doc: 'File to be renamed.'),
+                            parameter(name: 'destination', type: String, doc: 'Destination file location to rename. Base directory is workspace.'),
+                    ])
+            method(name: 'fileTransformOperation', type: Object, doc: 'File transform operation',
+                    namedParams: [
+                            parameter(name: 'includes', type: String, doc: 'Files included to copy, this supports ant-style file pattern ex: target/*/final*.xml'),
+                            parameter(name: 'excludes', type: String, doc: 'Files excluded from copying, this supports ant-style file pattern ex: target/*/final*.xml'),
+                    ])
+            method(name: 'fileUnTarOperation', type: Object, doc: 'File UnTar operation',
+                    namedParams: [
+                            parameter(name: 'filePath', type: String, doc: 'Source tar file location.'),
+                            parameter(name: 'targetLocation', type: String, doc: 'Destination folder location to untar the files. Base directory is workspace.'),
+                            parameter(name: 'isGZIP', type: Boolean, doc: 'Is GZIP file type.'),
+                    ])
+            method(name: 'fileUnZipOperation', type: Object, doc: 'File unzip operation',
+                    namedParams: [
+                            parameter(name: 'filePath', type: String, doc: 'Source zip file location.'),
+                            parameter(name: 'targetLocation', type: String, doc: 'Destination folder location to unzip the files. Base directory is workspace.'),
+                    ])
+            method(name: 'fileZipOperation', type: Object, doc: 'File zip operation',
+                    namedParams: [
+                            parameter(name: 'folderPath', type: String, doc: 'Path of the file or folder to create a zip file for, relative to the workspace directory.'),
+                            parameter(name: 'outputFolderPath', type: String, doc: 'Path to a target directory for the zip file, relative to the workspace directory. Defaults to workspace directory if not defined.'),
+                    ])
+            method(name: 'folderCopyOperation', type: Object, doc: 'Folder copy operation',
+                    namedParams: [
+                            parameter(name: 'sourceFolderPath', type: String, doc: 'Folder to be copied.'),
+                            parameter(name: 'destinationFolderPath', type: String, doc: 'Destination folder location to copy the files. Base directory is workspace.'),
+                    ])
+            method(name: 'folderCreateOperation', type: Object, doc: 'Folder create operation',
+                    namedParams: [
+                            parameter(name: 'folderPath', type: String, doc: 'Path and Name of the folder to be created in workspace.'),
+                    ])
+            method(name: 'folderDeleteOperation', type: Object, doc: 'Folder delete operation',
+                    namedParams: [
+                            parameter(name: 'folderPath', type: String, doc: 'Path and Name of the folder to be deleted in workspace.'),
+                    ])
+            method(name: 'folderRenameOperation', type: Object, doc: 'Folder rename operation',
+                    namedParams: [
+                            parameter(name: 'source', type: String, doc: 'Folder to be renamed.'),
+                            parameter(name: 'destination', type: String, doc: 'Destination folder name to rename. Base directory is workspace.'),
+                    ])
+        }
+
+    }
+
+    // TODO docker-steps for more details: https://www.jenkins.io/doc/book/pipeline/docker/
+
+    // The post section
+    if (enclosingCall("post")) {
+        method(name: 'always', type: Object, params: [body: Closure])
+        method(name: 'success', type: Object, params: [body: Closure])
+        method(name: 'failure', type: Object, params: [body: Closure])
+        method(name: 'unstable', type: Object, params: [body: Closure])
+        method(name: 'changed', type: Object, params: [body: Closure])
+        method(name: 'aborted', type: Object, params: [body: Closure])
+        method(name: 'fixed', type: Object, params: [body: Closure])
+        method(name: 'regression', type: Object, params: [body: Closure])
+        method(name: 'unsuccessful', type: Object, params: [body: Closure])
+        method(name: 'cleanup', type: Object, params: [body: Closure])
+    }
+}
