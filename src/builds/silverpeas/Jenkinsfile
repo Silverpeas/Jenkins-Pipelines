@@ -10,6 +10,7 @@ node {
   catchError {
     def buildRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def releaseRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
+    def wildflyVersion
     def version
     def parentVersion
     def release
@@ -31,8 +32,10 @@ node {
           def isReleased = sh returnStatus: true,
               script: "curl --output /dev/null --silent --head --fail -r 0-0 ${releaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
           parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
+          wildflyVersion = parentBuild.wildfly
         } else {
           parentVersion = pom.parent.version
+          wildflyVersion = ''
         }
         echo "Parent version is ${parentVersion}"
         echo "Trigger build version ${version} of Silverpeas from ${params.BRANCH}..."
@@ -127,7 +130,7 @@ node {
           dir(project) {
             def pom = readMavenPom()
             if (pom.parent) {
-              if (!pom.parent.version.matches(/[0-9.]+/) && parentVersion && pom.parent.version != parentVersion) {
+              if (parentVersion && pom.parent.version != parentVersion) {
                 sh """
 mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
 git commit -am "Update parent POM to version ${parentVersion}"
@@ -166,15 +169,11 @@ git commit -am "Publish Silverpeas web site with ${version} as the latest build 
         // publish a test image only for a build versions of the main development branch
         if (params.BRANCH == 'master') {
           echo "Generate a test Docker image of Silverpeas ${version}..."
-          def project = 'docker-silverpeas-test'
-          fetchFromGithub(project)
-          dir(project) {
-            sh """
-sed -i -e "s/ARG SILVERPEAS_VERSION=.\\+/ARG SILVERPEAS_VERSION=${version}/g" Dockerfile
-git commit -am "Update Dockerfile for Silverpeas ${version}"
-"""
-            pushToGithub(project, params.BRANCH)
-          }
+          build job: 'Silverpeas Test Image', parameters: [
+              string(name: 'IMAGE_VERSION', value: 'latest'),
+              string(name: 'SILVERPEAS_VERSION', value: version),
+              string(name: 'WILDFLY_VERSION', value: wildflyVersion)
+          ], wait: false
         } else {
           echo 'Not main development branch: nothing to publish.'
         }

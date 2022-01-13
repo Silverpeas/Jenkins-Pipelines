@@ -36,71 +36,77 @@ pipeline {
 
   environment {
     registryCredential = 'dockerhub-mmoquillon'
-    project='docker-silverpeas-build'
-    projectCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    branch='master'
+    gitRepo = 'https://github.com/Silverpeas/docker-silverpeas-build'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     imageName = 'silverpeas/silverbuild'
     dockerImage = ''
+    modified = 0
   }
 
   stages {
-    stage('Preparation') {
+    stage('Prepare the build') {
       steps {
-        git([url: "https://github.com/Silverpeas/${project}", branch: branch, credentialsId: projectCredential])
+        git([url: gitRepo, credentialsId: gitCredential])
         script {
-          withCredentials([usernamePassword(credentialsId: projectCredential, usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-            int status = sh script: """
+          modified = sh script: """
             sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
             sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
             git diff --quiet
             """, returnStatus: true
-
-            if (status == 1) {
-              echo "Update Wildfly version to ${params.WILDFLY_VERSION} and Java version to ${params.JAVA_VERSION}"
-              sh """
-              git commit -am "Upgrade for Wildfly ${params.WILDFLY_VERSION} and Java ${params.JAVA_VERSION}"
-              git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:${branch}
-              """
-            }
-          }
         }
       }
     }
-    stage('Image building') {
+    stage('Push modifications') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { modified == 1 }
+      }
+      steps {
+        echo "Update Wildfly version to ${params.WILDFLY_VERSION} and Java version to ${params.JAVA_VERSION}"
+        sh "git commit -am \"Upgrade for Wildfly ${params.WILDFLY_VERSION} and Java ${params.JAVA_VERSION}\""
+        sh '''
+           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+           git push origin HEAD:master
+           '''
+      }
+    }
+    stage('Build image') {
       steps {
         script {
           dockerImage = docker.build "${imageName}:${params.IMAGE_VERSION}"
-
         }
       }
     }
-    stage('Image registering') {
+    stage('Register image') {
       steps{
         script {
           docker.withRegistry('', registryCredential ) {
               dockerImage.push()
           }
-          currentBuild.displayName = params.IMAGE_VERSION
         }
       }
     }
-    stage('Tagging') {
+    stage('Tag project') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
       when {
-        expression {
-          return params.IMAGE_VERSION != 'latest'
-        }
+        expression { params.IMAGE_VERSION != 'latest' }
       }
       steps {
-        withCredentials([usernamePassword(credentialsId: projectCredential, usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-            sh """
-            git tag ${params.IMAGE_VERSION}
-            git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} --tags"
-            """
-          }
+        sh "git tag ${params.IMAGE_VERSION}"
+        sh 'git push origin --tags"'
       }
     }
   }
   post {
+    success {
+      script {
+        currentBuild.displayName = params.IMAGE_VERSION
+      }
+    }
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
