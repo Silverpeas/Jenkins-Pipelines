@@ -1,7 +1,7 @@
 /**
  * Pipeline to construct a build version of the RAR of JackRabbit JCA customized for Silverpeas.
  *
- * The build is performed within a dedicated Docker image in order to ensure the reproductibility of
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
  */
 pipeline {
@@ -83,5 +83,3 @@ mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Dj
     }
   }
 }
-
-

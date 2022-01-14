@@ -1,144 +1,192 @@
-import java.util.regex.Matcher
-
-/*
- * This pipeline has some expectations:
- * - the job name is formatted as Silverpeas_Mobile_<PRJ_NAME>_AutoDeploy with PRJ_NAME the name
- *   of the project version: Master for the current development version, Stable for the current
- *   stable version, and the project's branch name for older stable versions.
- * - the name of the job building a release candidate of Silverpeas upon which this project depend
- *   is formatted as Silverpeas_<PRJ_NAME>_AutoDeploy with PRJ_NAME the same value as above.
+/**
+ * Pipeline to construct a build version of Silverpeas Mobile. The execution of the pipeline depends
+ * on the latest successful build version of Silverpeas as it fetches the build result report
+ * from the successful Jenkins job in order to update correctly its dependencies on both Silverpeas
+ * Core and Silverpeas Components.
  *
- * This pipeline requires the following build parameter to be set:
- * - BRANCH: the name of the Git branch from which the project has to be fetched and built.
- * - IMAGE_VERSION: the version of the Docker image to use for running the job.
- * - Optionally, the following build parameter can be set at true to skip the executions of the
- *   tests: SKIP_TEST.
+ * Because this pipeline is based upon some convention rules, some expectations have to be
+ * fulfilled:
+ * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
+ *                             which this project depend must be formatted as
+ *                             Silverpeas_<PRJ_NAME>_AutoDeploy with PRJ_NAME the type of
+ *                             the SCM branch: Master for the current development version, Stable
+ *                             for the current stable version, the project's branch name for older
+ *                             stable versions.
+ *
+ * This pipeline requires the following parameters:
+ * STABLE        (optional) the name of the SCM branch in which is currently developed the stable
+ *               version of Silverpeas. Must be updated at each major and minor version release.
+ * BRANCH        the name of the SCM branch from which the project has to be fetched and built.
+ * IMAGE_VERSION the version of the Docker image to use for running the job as for each version of
+ *               the image correspond a given version lifecycle of Silverpeas.
+ * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped.
  */
-node {
-  catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
-    def version
-    def parentVersion
-    def release
-    def commit
-    docker.image("silverpeas/silverbuild:${params.IMAGE_VERSION}").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Prepare') {
-        if (!params.BRANCH) {
-          error "Please set the parameter BRANCH to indicate what branch of the project to build!"
-        }
-        sh "rm -rf *"
-        def silverpeasProjectName = fetchSilverpeasDependency(env.JOB_NAME)
-        copyArtifacts projectName: silverpeasProjectName, flatten: true
-        def silverpeasBuild = readYaml file: 'build.yaml'
-        parentVersion = silverpeasBuild.parent
-        version = silverpeasBuild.version
-        release = silverpeasBuild.release
-        echo "Parent version is ${parentVersion}"
-        echo "Trigger build version ${version} of Silverpeas Mobile upon Silverpeas Platform ${version} from ${params.BRANCH}..."
-      }
-      stage('Build') {
-        fetchFromGithub 'silverpeasmobile'
-        buildMavenProject project: 'silverpeasmobile',
-            version: version,
-            parentVersion: parentVersion
-      }
-      stage('Deploy') {
-        commit = deployMavenProject(project: 'silverpeasmobile',
-            repo: nexusRepo)
-      }
-      stage('Archive Build Version') {
-        sh "mkdir -p target"
-        final String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version,
-                                         'parent': parentVersion,
-                                         'release': release,
-                                         'commit': commit,
-                                         'tested': !params.SKIP_TEST]
-        archiveArtifacts artifacts: artifact, fingerprint: true
-        currentBuild.displayName = version
-      }
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
     }
   }
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, nicolas.eysseric@silverpeas.org",
-        sendToIndividuals: true])
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: false,
-        recipients: "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org",
-        sendToIndividuals: true])
-}
 
-def fetchFromGithub(project) {
-  dir (project) {
-    git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', branch: params.BRANCH, poll: false, url: "https://github.com/Silverpeas/${project}"
+  parameters {
+    string (
+        defaultValue: '6.2.x',
+        description: 'The SCM branch corresponding to the current stable versions lifecycle of Silverpeas',
+        name: 'STABLE'
+    )
+    string (
+        description: 'The SCM branch from which the project has to be built',
+        name: 'BRANCH'
+    )
+    string (
+        defaultValue: 'latest',
+        description: 'Version of the Docker image to use to build the project',
+        name: 'IMAGE_VERSION'
+    )
+    booleanParam(
+        defaultValue: false,
+        description: 'Flag indicating if the excecution of the tests should be skipped',
+        name: 'SKIP_TEST'
+    )
   }
-}
 
-def pushToGithub(project, branch) {
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:${branch}"
+  environment {
+    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    gitRepo = 'https://github.com/Silverpeas/silverpeasmobile'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    buildNumber = (new Date()).format('yyMMdd')
+    parentVersion = ''
+    buildVersion = ''
+    release = ''
+    commit = ''
+    pom = null
+    artifact = 'target/build.yaml'
   }
-}
 
-def buildMavenProject(args) {
-  dir(args.project) {
-    def pom = readMavenPom()
-    if (pom.parent) {
-      if (!pom.parent.version.matches(/[0-9.]+/) && args.parentVersion && pom.parent.version != args.parentVersion) {
-        sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${args.parentVersion}]"
-git commit -am "Update parent POM to version ${args.parentVersion}"
-"""
-        pushToGithub(args.project, params.BRANCH)
-      } else if (pom.parent.version.contains('SNAPSHOT')) {
+  stages {
+    stage('Resolve dependency on Silverpeas') {
+      steps {
+        script {
+          String jobName = getSilverpeasAutoBuildobName(params.STABLE, params.BRANCH)
+          copyArtifacts projectName: jobName, flatten: true
+          def silverpeasBuild = readYaml file: 'build.yaml'
+          parentVersion = silverpeasBuild.parent
+          version = silverpeasBuild.version
+          release = silverpeasBuild.release
+        }
+        echo "Parent version is ${parentVersion}"
+        echo "Build Silverpeas Mobile ${version} upon Silverpeas ${version}"
+      }
+    }
+    stage('Checkout the project') {
+      steps {
+        git([url: gitRepo, branch: params.BRANCH, credentialsId: gitCredential])
+        script {
+          pom = readMavenPom()
+        }
+      }
+    }
+    stage('Check POM parent version') {
+      when {
+        expression { pom.parent.version.contains('SNAPSHOT') }
+      }
+      steps {
         error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
       }
     }
-    sh """
-sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${args.version}/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}
-"""
-    if (args.version.startsWith('6.0')) {
-      sh """
-/usr/local/bin/ooserver start
-mvn clean install -Pdeployment -Djava.awt.headless=true -Dcontext=ci -Dmaven.test.skip=true
-/usr/local/bin/ooserver stop
-"""
-    } else {
-      if (params.SKIP_TEST) {
-        sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
-      } else if (args.version.startsWith('6.1') || args.version.startsWith('6.2'))  {
-        sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
-      } else {
+    stage('Update POM parent') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression {
+          !pom.parent.version.matches(/[0-9.]+/) && parentVersion && pom.parent.version != parentVersion
+        }
+      }
+      steps {
         sh """
-/opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
-mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
-/opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
+          mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
+          git commit -am "Update parent POM to version ${parentVersion}"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin HEAD:master
+          '''
+      }
+    }
+    stage('Update dependency on Silverpeas') {
+      steps {
+        sh """
+sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}/g" pom.xml
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 """
       }
+    }
+    stage('Build and Publish') {
+      steps {
+        script {
+          String skipTest = params.SKIP_TEST ? '-Dmaven.test.skip=true' : ''
+          if (params.BRANCH != 'master') {
+            sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage ${skipTest} -Djava.awt.headless=true -Dcontext=ci"
+          } else {
+            sh """
+              /opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
+              mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage  ${skipTest} -Djava.awt.headless=true -Dcontext=ci
+              /opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
+              """
+          }
+        }
+      }
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+          writeYaml file: artifact, data: ['version': version,
+                                           'parent' : parentVersion,
+                                           'release': release,
+                                           'commit' : commit,
+                                           'tested' : !params.SKIP_TEST]
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, sebastien.vuillet@silverpeas.org",
+            sendToIndividuals       : true])
     }
   }
 }
 
-def deployMavenProject(args) {
-  dir(args.project) {
-    sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${args.repo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
-    final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-    return commit.trim()
+String getSilverpeasAutoBuildobName(currentStableVersion, branchName) {
+  String type;
+  switch (branchName) {
+    case currentStableVersion:
+      type = 'Stable'
+      break
+    case 'master':
+    case 'main':
+      type = 'Master'
+      break
+    default:
+      type = branchName
+      break
   }
-}
-
-@NonCPS
-def fetchTargetRepo(nexusRepoUrl) {
-  Matcher matcher = nexusRepoUrl =~ /(repositories\/.+)/
-  matcher ? matcher[0][1] : ''
-}
-
-@NonCPS
-def fetchSilverpeasDependency(jobName) {
-  Matcher matcher = jobName =~ /Silverpeas_Mobile_([a-zA-Z0-9.]+)_AutoDeploy/
-  matcher.matches() ? "Silverpeas_${matcher[0][1]}_AutoDeploy" : ''
+  return "Silverpeas_${type}_AutoDeploy"
 }
 

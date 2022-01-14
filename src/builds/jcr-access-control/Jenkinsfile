@@ -1,36 +1,75 @@
-node {
-  catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
-    def gitRepo = 'https://github.com/Silverpeas/Silverpeas-JCR-AccessControl.git'
-    def version
-    def release
-    docker.image("silverpeas/silverbuild")
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        def buildNumber = (new Date()).format('yyMMdd')
-        echo "Prepare the build ${buildNumber} of Silverpeas JCR Access Controller..."
-        // checkout the project
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "${gitRepo}"
-        def pom = readMavenPom()
-        release = pom.properties['next.release']
-        version = "${release}-build${buildNumber}"
-        sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
+/**
+ * Pipeline to construct a build version of the JCR access control library for JackRabbit.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
+
+  environment {
+    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-JCR-AccessControl'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    buildNumber = (new Date()).format('yyMMdd')
+    buildVersion = ''
+    release = ''
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Prepare') {
+      steps {
+        echo "Prepare the build ${buildNumber} of the JCR Access Control library..."
+        git([url: gitRepo, credentialsId: gitCredential])
+        script {
+          def pom = readMavenPom()
+          release = pom.properties['next.release']
+          buildVersion = "${release}-build${buildNumber}"
+        }
       }
-      stage('Build and Deploy') {
-        sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Djava.awt.headless=true"
+    }
+    stage('Build and publish') {
+      steps {
+        script {
+          sh """
+mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}
+mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Djava.awt.headless=true
+"""
+        }
       }
-      stage('Archive Build Version') {
-        final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-        String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version, 'commit': commit.trim(), 'release': release]
-        archiveArtifacts artifacts: artifact, fingerprint: true
-        currentBuild.displayName = version
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+          writeYaml file: artifact, data: ['version': version, commit: commit.trim(), 'release': release]
+        }
       }
     }
   }
-step([$class                  : 'Mailer',
-      notifyEveryUnstableBuild: true,
-      recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-      sendToIndividuals       : true])
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
 }
-
