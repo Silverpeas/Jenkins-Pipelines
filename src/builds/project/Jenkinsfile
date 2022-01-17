@@ -1,64 +1,123 @@
-node {
-  catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
-    def version
-    def release
-    def wildfly
-    docker.image('silverpeas/silverbuild')
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        def buildNumber = (new Date()).format('yyMMdd')
-        echo "Prepare the build ${buildNumber} of Silverpeas Project (and the dependencies definitions)..."
-        sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
-        def pom = readMavenPom()
-        release = pom.properties['next.release']
-        version = "${release}-build${buildNumber}"
-        wildfly = pom.properties['wildfly.version']
-      }
-      stage('Silverpeas Dependencies') {
-        echo "Build ${version} of Silverpeas Dependencies..."
-        fetchFromGithub('silverpeas-dependencies-bom')
-        def pom = readMavenPom()
-        if (pom.properties['jcr.accesscontrol.version'].contains('SNAPSHOT')) {
-          error "The Silverpeas JCR AccessControl dependency must be a stable or a build version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
+/**
+ * Pipeline to construct a build version of the Silverpeas Project POM that is used as the POM
+ * parent of all the other Silverpeas projects. The Silverpeas Project POM is made up of three
+ * projects: Silverpeas-Project that defines the model of a project in Silverpeas,
+ * silverpeas-dependencies-bom that defines the dependencies required by the Silverpeas application,
+ * and silverpeas-test-dependencies-bom that defines the dependencies required to run the tests
+ * for a given Silverpeas project or module.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
+
+  environment {
+    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    gitRepoOfProject = 'https://github.com/Silverpeas/Silverpeas-Project'
+    gitRepoOfDependencies = 'https://github.com/Silverpeas/silverpeas-dependencies-bom'
+    gitRepoOfTestDependencies = 'https://github.com/Silverpeas/silverpeas-test-dependencies-bom'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    buildNumber = (new Date()).format('yyMMdd')
+    buildVersion = ''
+    release = ''
+    jcrAccessControl = ''
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Prepare the build') {
+      steps {
+        echo "Prepare the build ${buildNumber}..."
+        sh "curl -fsSL -o pom1.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/master/pom.xml"
+        script {
+          def pom = readMavenPom file: 'pom1.xml'
+          release = pom.properties['next.release']
+          buildVersion = "${release}-build${buildNumber}"
+          wildfly = pom.properties['wildfly.version']
         }
-        buildAndDeploy(version, nexusRepo)
+        sh "curl -fsSL -o pom2.xml https://raw.githubusercontent.com/Silverpeas/silverpeas-dependencies-bom/master/pom.xml"
+        script {
+          def pom = readMavenPom file: 'pom2.xml'
+          jcrAccessControl = pom.properties['jcr.accesscontrol.version']
+        }
+        sh 'rm -f pom?.xml'
       }
-      stage('Silverpeas Test Dependencies') {
-        echo "Build ${version} of Silverpeas Test Dependencies..."
-        fetchFromGithub('silverpeas-test-dependencies-bom')
-        buildAndDeploy(version, nexusRepo)
+    }
+    stage('Check dependencies') {
+      when {
+        expression { jcrAccessControl.contains('SNAPSHOT') }
       }
-      stage('Silverpeas Project') {
-        echo "Build ${version} of Silverpeas Project..."
-        fetchFromGithub('Silverpeas-Project')
-        sh """
-sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
+      steps {
+        error "The Silverpeas JCR AccessControl dependency must be a stable or a build version. Current version is ${jcrAccessControl}"
+      }
+    }
+    stage('Build and Publish dependencies definition') {
+      steps {
+        dir('dependencies') {
+          git([url: gitRepoOfDependencies, credentialsId: gitCredential])
+          buildAndPublish(buildVersion, nexusRepo)
+        }
+      }
+    }
+    stage('Build and Publish test dependencies definition') {
+      steps {
+        dir('test-dependencies') {
+          git([url: gitRepoOfTestDependencies, credentialsId: gitCredential])
+          buildAndPublish(buildVersion, nexusRepo)
+        }
+      }
+    }
+    stage('Build and publish project definition') {
+      steps {
+        dir('project') {
+          git([url: gitRepoOfProject, credentialsId: gitCredential])
+          sh """
+sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${buildVersion}/g" pom.xml
 """
-        buildAndDeploy(version, nexusRepo)
+          buildAndPublish(buildVersion, nexusRepo)
+        }
       }
-      stage('Archive Build Results') {
-        String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version, 'release': release, 'wildfly': wildfly]
-        archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          writeYaml file: artifact, data: ['version': buildVersion,
+                                           'release': release,
+                                           'wildfly': wildfly]
+        }
       }
     }
   }
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-        sendToIndividuals: true])
+  post {
+    success {
+      script {
+        currentBuild.displayName = buildVersion
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
 }
 
-def buildAndDeploy(version, repo) {
+void buildAndPublish(version, repo) {
   sh """
 mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
 mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${repo} -Djava.awt.headless=true
 """
 }
-
-def fetchFromGithub(project) {
-  sh "rm -rf * .git*"
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://github.com/Silverpeas/${project}"
-}
-

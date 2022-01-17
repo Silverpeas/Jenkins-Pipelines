@@ -28,7 +28,7 @@ pipeline {
   }
 
   stages {
-    stage('Prepare') {
+    stage('Prepare the build') {
       steps {
         echo "Prepare the build ${buildNumber} of the JCR Access Control library..."
         git([url: gitRepo, credentialsId: gitCredential])
