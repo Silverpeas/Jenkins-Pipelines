@@ -3,6 +3,7 @@ node {
     def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     def version
     def release
+    def wildfly
     docker.image('silverpeas/silverbuild')
         .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
       stage('Preparation') {
@@ -12,6 +13,7 @@ node {
         def pom = readMavenPom()
         release = pom.properties['next.release']
         version = "${release}-build${buildNumber}"
+        wildfly = pom.properties['wildfly.version']
       }
       stage('Silverpeas Dependencies') {
         echo "Build ${version} of Silverpeas Dependencies..."
@@ -37,7 +39,7 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
       }
       stage('Archive Build Results') {
         String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version, 'release': release]
+        writeYaml file: artifact, data: ['version': version, 'release': release, 'wildfly': wildfly]
         archiveArtifacts artifacts: artifact, fingerprint: true
       }
     }

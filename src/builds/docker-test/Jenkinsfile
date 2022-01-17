@@ -58,14 +58,20 @@ pipeline {
       }
       steps {
         echo "Update Wildfly to ${params.WILDFLY_VERSION}"
-        sh "sed -i -e \"s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g\" Dockerfile"
+        script {
+          modified = sh script: """
+            sed -i -e \"s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g\" Dockerfile
+            git diff --quiet
+            """, returnStatus: true
+        }
       }
     }
     stage('Update Silverpeas version') {
       steps {
+        echo "Update Silverpeas to ${params.SILVERPEAS_VERSION}"
         script {
-          modified = sh script: """
-            sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
+          modified += sh script: """
+            sed -i -e "s/SILVERPEAS_VERSION=[0-9a-zA-Z.-]\\+/SILVERPEAS_VERSION=${params.SILVERPEAS_VERSION}/g" Dockerfile
             git diff --quiet
             """, returnStatus: true
         }
@@ -76,7 +82,7 @@ pipeline {
         GIT_AUTH = credentials("${gitCredential}")
       }
       when {
-        expression { modified == 1 }
+        expression { modified >= 1 }
       }
       steps {
         echo "Update Silverpeas version to ${params.SILVERPEAS_VERSION}"
