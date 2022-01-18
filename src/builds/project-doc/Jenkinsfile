@@ -1,0 +1,118 @@
+/**
+ * Pipeline to publish the web site of the open-source community of Silverpeas. It doesn't publish
+ * the documentation of each project on which Silverpeas is made up. Those documentations are
+ * published only at release of each latest stable version of Silverpeas.
+ *
+ * This pipeline is based upon the existence of a Jenkins job named
+ * 'Silverpeas_Project_Definition_AutoDeploy' that has produced a build version of the Silverpeas
+ * Project POM used as POM parent for all Silverpeas projects in development. It will fetch from it
+ * the job result report in order to compute some parameters required by this pipeline and to check
+ * if the POM parent of the community web site project have to be updated.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
+
+  parameters {
+    string (
+        defaultValue: '',
+        description: 'Build version of Silvereas with which the web site info has to be updated. By default, an empty value meaning no update',
+        name: 'SILVERPEAS_VERSION'
+    )
+    booleanParam (
+        defaultValue: false,
+        description: 'Flag indicating if the excecution of the tests should be skipped',
+        name: 'SKIP_TEST'
+    )
+  }
+
+  environment {
+    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    parentVersion = ''
+    pom = null
+  }
+
+  stages {
+    stage('Prepare the job') {
+      steps {
+        git([url: gitRepo, credentialsId: gitCredential])
+        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+        script {
+          def parentBuild = readYaml file: 'build.yaml'
+          def isReleased = sh returnStatus: true, script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
+          parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
+          pom = readMavenPom()
+        }
+      }
+    }
+    stage('Check POM parent version') {
+      when {
+        expression { pom.parent.version.contains('SNAPSHOT') }
+      }
+      steps {
+        error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+      }
+    }
+    stage('Update POM parent version') {
+      when {
+        expression { parentVersion && pom.parent.version != parentVersion }
+      }
+      steps {
+        sh """
+          mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[$parentVersion]"
+          git commit -am "Update parent POM to version $parentVersion"
+          """
+      }
+    }
+    stage('Update build version of Silvereas') {
+      when {
+        expression { params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' }
+      }
+      steps {
+        sh """
+          sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${params.SILVERPEAS_VERSION}/g" pom.xml
+          git commit -am "Update the build version of Silverpeas to ${params.SILVERPEAS_VERSION}"
+          """
+      }
+    }
+    stage('Publish the web site') {
+      steps {
+        sh 'mvn clean site-deploy'
+      }
+    }
+    stage('Push the changes into the SCM') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\$GIT_AUTH_USR; echo password=\\$GIT_AUTH_PSW; }; f"    
+          git push origin HEAD:master
+          '''
+      }
+    }
+  }
+
+  post {
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}

@@ -1,87 +1,154 @@
-node {
-  catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
-    def gitRepo = 'https://github.com/Silverpeas/Silverpeas-Sso.git'
-    def parentVersion
-    def buildNumber
-    def version
-    def release
-    def silverpeasVersion
-    docker.image("silverpeas/silverbuild")
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        sh "rm -rf *"
-        buildNumber = (new Date()).format('yyMMdd')
-        echo "Prepare the build ${buildNumber} of Silverpeas SSO..."
-        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
-        def parentBuild = readYaml file: 'build.yaml'
-        parentVersion = parentBuild.version
-        sh 'rm -f build.yaml'
-        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true
-        def silverpeasBuild = readYaml file: 'build.yaml'
-        silverpeasVersion = silverpeasBuild.version
-        sh "rm -f build.yaml"
-      }
-      stage('Checkout') {
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "${gitRepo}"
-        def pom = readMavenPom()
-        release = pom.properties['next.release']
-        version = "${release}-build${buildNumber}"
+/**
+ * Pipeline to construct a build version of the SSO library for Silverpeas. The execution of the
+ * pipeline depends on the latest successful build version of Silverpeas as it fetches the build
+ * result report from the successful Jenkins job in order to update correctly its dependencies on
+ * Silverpeas.
+ *
+ * Because this pipeline is based upon some convention rules, some expectations have to be
+ * fulfilled:
+ * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
+ *                             which this project depend must be named as
+ *                             'Silverpeas_Master_AutoDeploy'
+ */
+pipeline {
 
-        updateIfNecessaryParentVersion(pom, parentVersion)
-        updateIfNecessarySilverpeasVersion(pom, silverpeasVersion)
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
 
-        sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}"
+  environment {
+    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-Sso'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    buildNumber = (new Date()).format('yyMMdd')
+    silverpeasBuildJobName = 'Silverpeas_Master_AutoDeploy'
+    parentVersion = ''
+    buildVersion = ''
+    silverpeasVersion = ''
+    release = ''
+    pom = null
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Resolve dependency on Silverpeas') {
+      steps {
+        script {
+          copyArtifacts projectName: silverpeasBuildJobName, flatten: true
+          def silverpeasBuild = readYaml file: 'build.yaml'
+          parentVersion = silverpeasBuild.parent
+          silverpeasVersion = silverpeasBuild.version
+          sh 'rm -f build.yaml'
+        }
       }
-      stage('Build and Deploy') {
+    }
+    stage('Checkout the project') {
+      steps {
+        git([url: gitRepo, credentialsId: gitCredential])
+        script {
+          pom = readMavenPom()
+          release = pom.properties['next.release']
+          buildVersion = "${release}-build${buildNumber}"
+        }
+      }
+    }
+    stage('Check POM parent version') {
+      when {
+        expression { pom.parent.version.contains('SNAPSHOT') }
+      }
+      steps {
+        error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+      }
+    }
+    stage('Check Silverpeas version') {
+      when {
+        expression { pom.properties['silverpeas.version'].contains('SNAPSHOT') }
+      }
+      steps {
+        error "The dependency on Silverpeas must be at a stable or at a build version for this project to be deployed. Current version is ${pom.properties['silverpeas.version']}"
+      }
+    }
+    stage('Update POM parent') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression {
+          !pom.parent.version.matches(/[0-9.]+/) && parentVersion && pom.parent.version != parentVersion
+        }
+      }
+      steps {
         sh """
-/opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
-mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
-/opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
-"""
+          mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
+          git commit -am "Update parent POM to version ${parentVersion}"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin HEAD:master
+          '''
       }
-      stage('Archive Build Version') {
-        final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-        String artifact = 'target/build.yaml'
-        writeYaml file: artifact, data: ['version': version, 'commit': commit.trim(), 'parent': parentVersion, 'release': release]
-        archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    stage('Update dependency on Silverpeas') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression {
+          !pom.properties['silverpeas.version'].matches(/[0-9.]+/) &&
+              pom.properties['silverpeas.version'] != silverpeasVersion
+        }
+      }
+      steps {
+        sh """
+          sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
+          git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin HEAD:master
+          '''
+      }
+    }
+    stage('Build and Publish') {
+      steps {
+        sh """
+          /opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
+          mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
+          /opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
+          """
+      }
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+          writeYaml file: artifact, data: ['version': version,
+                                           'parent' : parentVersion,
+                                           'release': release,
+                                           'commit' : commit.trim()]
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
         currentBuild.displayName = version
       }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
     }
   }
-step([$class                  : 'Mailer',
-      notifyEveryUnstableBuild: true,
-      recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-      sendToIndividuals       : true])
 }
-
-def updateIfNecessaryParentVersion(pom, parentVersion) {
-  if (!pom.parent.version.matches(/[0-9.]+/) && pom.parent.version != parentVersion) {
-    sh """
-mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
-git commit -am "Update parent POM to version ${parentVersion}"
-"""
-    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
-    }
-  } else if (pom.parent.version.contains('SNAPSHOT')) {
-    error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
-  }
-}
-
-def updateIfNecessarySilverpeasVersion(pom, silverpeasVersion) {
-  if (!pom.properties['silverpeas.version'].matches(/[0-9.]+/) && pom.properties['silverpeas.version'] != silverpeasVersion) {
-    sh """
-sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
-git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
-"""
-    withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-        usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-      sh "git push https://${USER}:${PASSWORD}@github.com/Silverpeas/Silverpeas-Sso HEAD:master"
-    }
-  } else if (pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
-    error "The dependency on Silverpeas must be at a stable or a build version for this project to be deployed. Current version is ${pom.properties['silverpeas.version']}"
-  }
-}
-

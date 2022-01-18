@@ -91,11 +91,9 @@ sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${
     }
     stage('Create YAML build report') {
       steps {
-        script {
-          writeYaml file: artifact, data: ['version': buildVersion,
-                                           'release': release,
-                                           'wildfly': wildfly]
-        }
+        writeYaml file: artifact, data: ['version': buildVersion,
+                                         'release': release,
+                                         'wildfly': wildfly]
       }
     }
   }

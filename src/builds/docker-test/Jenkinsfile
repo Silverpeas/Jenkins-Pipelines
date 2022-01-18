@@ -57,10 +57,11 @@ pipeline {
         expression { params.WILDFLY_VERSION && params.WILDFLY_VERSION != '' }
       }
       steps {
-        echo "Update Wildfly to ${params.WILDFLY_VERSION}"
         script {
+          String wildflyVersion = params.WILDFLY_VERSION.replace('.Final', '')
+          echo "Update Wildfly to ${wildflyVersion}"
           modified = sh script: """
-            sed -i -e \"s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g\" Dockerfile
+            sed -i -e \"s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${wildflyVersion}/g\" Dockerfile
             git diff --quiet
             """, returnStatus: true
         }
@@ -125,7 +126,7 @@ pipeline {
   post {
     success {
       script {
-        currentBuild.displayName = params.IMAGE_VERSION
+        currentBuild.displayName = params.SILVERPEAS_VERSION
       }
     }
     always {
