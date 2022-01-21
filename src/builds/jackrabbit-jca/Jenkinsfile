@@ -63,7 +63,9 @@ mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Dj
       steps {
         script {
           final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-          writeYaml file: artifact, data: ['version': version, commit: commit.trim(), 'release': release]
+          writeYaml file: artifact, data: ['version': version,
+                                           'commit': commit.trim(),
+                                           'release': release]
         }
       }
     }

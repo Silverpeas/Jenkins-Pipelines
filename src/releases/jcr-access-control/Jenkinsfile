@@ -1,95 +1,127 @@
-/*
- * This pipeline requires the following build parameter to be set:
- * BUILD_VERSION: the version number of an existing Silverpeas JCR Access Controller build from which the release will be performed
+/**
+ * Pipeline to release a stable version from given build version of the JCR Access Control library
+ * for JackRabbit.
+ *
+ * This pipeline requires the following parameters:
+ * BUILD_VERSION the build version of the project from which the release has to be done.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
  */
-node {
-  catchError {
-    def nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
-    def gitRepo = 'github.com/Silverpeas/Silverpeas-JCR-AccessControl'
-    def version
-    def commit
-    docker.image("silverpeas/silverbuild")
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        copyArtifacts projectName: 'Silverpeas_JCR-AccessController_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION)
-        def lastBuild = readYaml file: 'build.yaml'
-        version = lastBuild.release
-        commit = lastBuild.commit
-        sh "rm -rf *"
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
+
+  parameters {
+    string(
+        description: 'The build version of the project from which the release has to be done',
+        name: 'BUILD_VERSION'
+    )
+  }
+
+  environment {
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-JCR-AccessControl'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    version = ''
+    commit = ''
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Prepare the release') {
+      steps {
+        git([url: gitRepo, credentialsId: gitCredential])
+        script {
+          copyArtifacts projectName: 'Silverpeas_JCR-AccessController_AutoDeploy',
+              flatten: true,
+              selector: specific(params.BUILD_VERSION)
+          def lastBuild = readYaml file: 'build.yaml'
+          version = lastBuild.release
+          commit = lastBuild.commit
+          sh "rm -f build.yaml"
+        }
       }
-      stage('Checkout Build version to release') {
-        git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${gitRepo}"
+    }
+    stage("Checkout the build version") {
+      steps {
         sh """
-git checkout ${commit}
-git checkout -b release-${version}
-"""
+          git checkout ${commit}
+          git checkout -b release-${version}
+          """
       }
-      stage('Release') {
-        echo "Release of JCR Access Control ${version}..."
-        // release the project
-        releaseProject gitRepo, commit, version
-        prepareNextSnapshotVersion gitRepo, commit, version
+    }
+    stage('Release') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        echo "Release version ${version}"
+        sh """
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+          mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
+          git commit -am "Release of ${version} from ${params.BUILD_VERSION} (commit ${commit})"
+          git tag ${version}
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin --tags
+          '''
+      }
+    }
+    stage('Prepare the development of the next version') {
+      steps {
+        environment {
+          GIT_AUTH = credentials("${gitCredential}")
+        }
+        script {
+          String[] parts = version.split('\\.')
+          String nextVersion = "${parts[0]}.${(parts[1] as int) + 1}"
+          echo "Prepare development for ${nextVersion}"
+          sh 'git checkout master'
+          sh """
+            sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
+            mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}
+            mvn clean install -Dmaven.test.skip=true -Prelease-sign-artifacts
+            git commit -am "Prepare for development iteration of next version ${nextVersion}"
+            """
+          sh '''
+            git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+            git push origin HEAD:master
+            '''
+        }
+      }
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          writeYaml file: artifact, data: ['release': version,
+                                           'from'   : ['version': params.BUILD_VERSION,
+                                                       'commit' : commit.trim()]]
+        }
       }
     }
   }
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-        sendToIndividuals: true])
-}
-
-def buildMavenProjectSnapshot(nextVersion) {
-  sh """
-sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
-mvn clean install -Dmaven.test.skip=true
-"""
-}
-
-def buildMavenProjectRelease(version) {
-  sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-mvn clean deploy -Dmaven.test.skip=true -Prelease-sign-artifacts
-"""
-}
-
-def prepareNextSnapshotVersion(gitRepo, commit, version) {
-  echo "-> Prepare Next Snapshot version after ${version}"
-  def nextVersion = getNextVersion(version)
-
-  echo "Prepare the next development iteration for ${nextVersion}"
-  sh "git checkout master"
-  buildMavenProjectSnapshot(nextVersion)
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextVersion}"
-git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
-"""
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
   }
-}
-
-def releaseProject(gitRepo, commit, version) {
-  echo "-> Release project to version ${version}"
-  buildMavenProjectRelease(version)
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh """
-git commit -am "Release of ${version}"
-git tag ${version}
-git push https://${USER}:${PASSWORD}@${gitRepo} --tags
-"""
-  }
-}
-
-@NonCPS
-def getVersionNumber(buildVersion) {
-  def matcher = buildVersion =~ '(.+)-build\\d+'
-  matcher ? matcher[0][1] : null
-}
-
-@NonCPS
-def getNextVersion(version) {
-  String[] parts = version.split('\\.')
-  "${parts[0]}.${(parts[1] as Integer) + 1}"
 }
