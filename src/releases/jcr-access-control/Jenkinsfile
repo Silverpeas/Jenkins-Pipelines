@@ -44,10 +44,10 @@ pipeline {
           copyArtifacts projectName: 'Silverpeas_JCR-AccessController_AutoDeploy',
               flatten: true,
               selector: specific(params.BUILD_VERSION)
-          def lastBuild = readYaml file: 'build.yaml'
-          version = lastBuild.release
-          commit = lastBuild.commit
-          sh "rm -f build.yaml"
+          def build = readYaml file: 'build.yaml'
+          version = build.release
+          commit = build.commit
+          sh 'rm -f build.yaml'
         }
       }
     }
@@ -85,7 +85,7 @@ pipeline {
         script {
           String[] parts = version.split('\\.')
           String nextVersion = "${parts[0]}.${(parts[1] as int) + 1}"
-          echo "Prepare development for ${nextVersion}"
+          echo "Prepare development of ${nextVersion}"
           sh 'git checkout master'
           sh """
             sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml

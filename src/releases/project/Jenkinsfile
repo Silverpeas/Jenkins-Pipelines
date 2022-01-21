@@ -1,110 +1,190 @@
-node {
-  catchError {
-    def version
-    def nextVersion
-    def branch
-    docker.image("silverpeas/silverbuild")
-        .inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        echo "Prepare the release of Silverpeas Project (and the dependencies definitions)..."
-        branch = params.BRANCH ? params.BRANCH : 'master'
-        if (branch == 'master') {
+/**
+ * Pipeline to release a stable version from given build version of the JCR Access Control library
+ * for JackRabbit.
+ *
+ * This pipeline requires the following parameters:
+ * BRANCH the SCM branch from which the release will be done.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
+          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
+          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
+          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
+          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+    }
+  }
+
+  parameters {
+    string(
+        defaultValue: 'master',
+        description: 'The SCM branch from which the release has to be done with the current state in that branch',
+        name: 'BRANCH'
+    )
+  }
+
+  environment {
+    gitRepoOfProject = 'https://github.com/Silverpeas/Silverpeas-Project'
+    gitRepoOfDependencies = 'https://github.com/Silverpeas/silverpeas-dependencies-bom'
+    gitRepoOfTestDependencies = 'https://github.com/Silverpeas/silverpeas-test-dependencies-bom'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    version = ''
+    nextVersion = ''
+    jcrAccessControl = ''
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Prepare the release from master') {
+      when {
+        expression { params.BRANCH == 'master' }
+      }
+      steps {
+        script {
           copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
-          def parentBuild = readYaml file: 'build.yaml'
-          version = parentBuild.release
-          nextVersion = getNextVersion(parentBuild.release)
-        } else {
-          sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/${branch}/pom.xml"
+          def lastBuild = readYaml file: 'build.yaml'
+          version = lastBuild.release
+          nextVersion = getNextVersion(lastBuild.release)
+          sh 'rm -f build.yaml'
+          jcrAccessControl = fetchJCRAccessControlLibVersion()
+        }
+      }
+    }
+    stage ('Prepare the release from a given stable version branch') {
+      when {
+        expression { params.BRANCH != 'master' }
+      }
+      steps {
+        script {
+          sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Project/${params.BRANCH}/pom.xml"
           def pom = readMavenPom()
           version = pom.properties['next.release']
           nextVersion = getNextVersion(version)
+          sh 'rm -f pom.xml'
+          jcrAccessControl = fetchJCRAccessControlLibVersion()
         }
-        echo "Release of ${version}. The next version will be ${nextVersion}"
       }
-      stage('Silverpeas Dependencies') {
-        echo "Release Silverpeas Dependencies ${version}..."
-        fetchFromGithub('silverpeas-dependencies-bom', branch)
-        def pom = readMavenPom()
-        if (pom.properties['jcr.accesscontrol.version'].contains('SNAPSHOT') || pom.properties['jcr.accesscontrol.version'].contains('build')) {
-          error "The Silverpeas JCR AccessControl dependency must be a stable version. Current version is ${pom.properties['jcr.accesscontrol.version']}"
+    }
+    stage('Check dependencies') {
+      when {
+        expression {
+          jcrAccessControl.contains('SNAPSHOT') || jcrAccessControl.contains('build')
         }
-        releaseVersion(version)
-        prepareNextVersion(nextVersion)
-        pushToGithub('silverpeas-dependencies-bom', branch)
       }
-      stage('Silverpeas Test Dependencies') {
-        echo "Release Silverpeas Test Dependencies ${version}..."
-        fetchFromGithub('silverpeas-test-dependencies-bom', branch)
-        releaseVersion(version)
-        prepareNextVersion(nextVersion)
-        pushToGithub('silverpeas-test-dependencies-bom', branch)
+      steps {
+        error "The Silverpeas JCR AccessControl dependency must be a stable version. Current version is $jcrAccessControl"
       }
-      stage('Silverpeas Project') {
-        echo "Release ${version} Silverpeas Project ${version}..."
-        fetchFromGithub('Silverpeas-Project', branch)
-        sh """
-sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
-"""
-        releaseVersion(version)
-
-        sh """
-sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextVersion}-SNAPSHOT/g" pom.xml
-"""
-        prepareNextVersion(nextVersion)
-        pushToGithub('Silverpeas-Project', branch)
+    }
+    stage("Release dependencies definition") {
+      steps {
+        dir('dependencies') {
+          git([url: gitRepoOfDependencies, branch: params.BRANCH, credentialsId: gitCredential])
+          releaseVersion(version)
+          prepareNextVersion(nextVersion)
+          pushToGithub()
+        }
       }
-      stage('Archive version release') {
-        currentBuild.displayName = version
+    }
+    stage("Release test dependencies definition") {
+      steps {
+        dir('test-dependencies') {
+          git([url: gitRepoOfTestDependencies, branch: params.BRANCH, credentialsId: gitCredential])
+          releaseVersion(version)
+          prepareNextVersion(nextVersion)
+          pushToGithub()
+        }
+      }
+    }
+    stage("Release project definition") {
+      steps {
+        dir('project') {
+          git([url: gitRepoOfProject, branch: params.BRANCH, credentialsId: gitCredential])
+          sh """
+            sed -i -e "s/<silverpeas.bom.version>[0-9a-zA-Z.-]\\+/<silverpeas.bom.version>${version}/g" pom.xml
+            """
+          releaseVersion(version)
+          sh """
+            sed -i -e "s/<silverpeas.bom.version>${version}/<silverpeas.bom.version>${nextVersion}-SNAPSHOT/g" pom.xml
+            """
+          prepareNextVersion(nextVersion)
+          pushToGithub()
+        }
+      }
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          writeYaml file: artifact, data: ['release': version, 'branch': params.BRANCH]
+        }
       }
     }
   }
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-        sendToIndividuals: true])
-}
-
-def releaseVersion(version) {
-  echo "-> Release version ${version}"
-  sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
-mvn clean deploy -Djava.awt.headless=true
-git commit -am "Release of ${version}"
-git tag ${version}
-"""
-}
-
-def prepareNextVersion(nextversion) {
-  echo "-> Prepare Next Snapshot version ${nextversion}"
-  sh """
-sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
-sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>HEAD/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
-mvn clean install -Djava.awt.headless=true
-git commit -am "Prepare for next development iteration of next version ${nextversion}"
-"""
-}
-
-def fetchFromGithub(project, branch) {
-  sh "rm -rf * .git*"
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, branch: branch,
-      url: "https://github.com/Silverpeas/${project}"
-}
-
-def pushToGithub(project, branch) {
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh """
-git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} HEAD:${branch}
-git push https://${USER}:${PASSWORD}@github.com/Silverpeas/${project} --tags
-"""
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
   }
 }
 
-@NonCPS
-def getNextVersion(version) {
-  String[] parts = version.split('\\.')
-  parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+void releaseVersion(String version) {
+  echo " -> release version ${version}"
+  sh """
+    mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+    sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>${version}/g" pom.xml
+    mvn clean deploy -Djava.awt.headless=true
+    git commit -am "Release of ${version}"
+    git tag ${version}
+    """
 }
 
+void prepareNextVersion(String nextversion) {
+  echo " -> prepare development of ${nextVersion}"
+  sh """
+    sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextversion}/g" pom.xml
+    sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>HEAD/g" pom.xml
+    mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextversion}-SNAPSHOT
+    mvn clean install -Djava.awt.headless=true
+    git commit -am "Prepare for development iteration of next version ${nextversion}"
+    """
+}
+
+void pushToGithub() {
+  withCredentials([usernamePassword(credentialsId: gitCredential,
+      usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
+    sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
+    sh """
+       git push origin HEAD:${params.BRANCH}
+       git push origin --tags
+      """
+  }
+}
+
+String getNextVersion(String version) {
+  String[] parts = version.split('\\.')
+  parts.length < 3 ?
+      "${parts[0]}.${(parts[1] as int) + 1}" :
+      "${parts[0]}.${parts[1]}.${(parts[2] as int) + 1}"
+}
+
+String fetchJCRAccessControlLibVersion() {
+  sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/silverpeas-dependencies-bom/$params.BRANCH/pom.xml"
+  def pom = readMavenPom()
+  jcrAccessControl = pom.properties['jcr.accesscontrol.version']
+  sh 'rm -f pom.xml'
+  return jcrAccessControl
+}

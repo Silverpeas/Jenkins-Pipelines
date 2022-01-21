@@ -45,10 +45,10 @@ pipeline {
           copyArtifacts projectName: 'Silverpeas_Jackrabbit-JCA_AutoDeploy',
               flatten: true,
               selector: specific(params.BUILD_VERSION)
-          def lastBuild = readYaml file: 'build.yaml'
-          version = lastBuild.release
-          commit = lastBuild.commit
-          sh "rm -f build.yaml"
+          def build = readYaml file: 'build.yaml'
+          version = build.release
+          commit = build.commit
+          sh 'rm -f build.yaml'
         }
       }
     }
