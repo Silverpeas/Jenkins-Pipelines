@@ -31,11 +31,6 @@ pipeline {
         description: 'Build version of Silvereas with which the web site info has to be updated. By default, an empty value meaning no update',
         name: 'SILVERPEAS_VERSION'
     )
-    booleanParam (
-        defaultValue: false,
-        description: 'Flag indicating if the excecution of the tests should be skipped',
-        name: 'SKIP_TEST'
-    )
   }
 
   environment {
@@ -43,6 +38,7 @@ pipeline {
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     parentVersion = ''
+    modified = '0'
     pom = null
   }
 
@@ -56,6 +52,7 @@ pipeline {
           def isReleased = sh returnStatus: true, script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
           parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
           pom = readMavenPom()
+          sh 'rm -f build.yaml'
         }
       }
     }
@@ -72,10 +69,13 @@ pipeline {
         expression { parentVersion && pom.parent.version != parentVersion }
       }
       steps {
-        sh """
+        script {
+          modified = sh script: """
           mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[$parentVersion]"
           git commit -am "Update parent POM to version $parentVersion"
-          """
+          git diff --quiet
+          """, returnStatus: true
+        }
       }
     }
     stage('Update build version of Silvereas') {
@@ -83,10 +83,13 @@ pipeline {
         expression { params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' }
       }
       steps {
-        sh """
+        script {
+          String status = sh script: """
           sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${params.SILVERPEAS_VERSION}/g" pom.xml
           git commit -am "Update the build version of Silverpeas to ${params.SILVERPEAS_VERSION}"
-          """
+          """, returnStatus: true
+          modified = status == '0' ? modified : status
+        }
       }
     }
     stage('Publish the web site') {
@@ -97,6 +100,9 @@ pipeline {
     stage('Push the changes into the SCM') {
       environment {
         GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { modified != '0' }
       }
       steps {
         sh '''

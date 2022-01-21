@@ -40,7 +40,7 @@ pipeline {
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     imageName = 'silverpeas/silverbuild'
     dockerImage = ''
-    modified = 0
+    modified = '0'
   }
 
   stages {
@@ -61,7 +61,7 @@ pipeline {
         GIT_AUTH = credentials("${gitCredential}")
       }
       when {
-        expression { modified == 1 }
+        expression { modified == '1' }
       }
       steps {
         echo "Update Wildfly version to ${params.WILDFLY_VERSION} and Java version to ${params.JAVA_VERSION}"

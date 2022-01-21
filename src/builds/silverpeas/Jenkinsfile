@@ -121,9 +121,9 @@ pipeline {
         copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
         script {
           def parentBuild = readYaml file: 'build.yaml'
-          int isReleased = sh returnStatus: true,
+          String isReleased = sh returnStatus: true,
               script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusReleaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
-          parentVersion = isReleased == 0 ? parentBuild.release : parentBuild.version
+          parentVersion = isReleased == "0" ? parentBuild.release : parentBuild.version
           wildflyVersion = parentBuild.wildfly
           sh 'rm -f build.yaml'
         }
