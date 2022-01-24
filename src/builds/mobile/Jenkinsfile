@@ -66,7 +66,7 @@ pipeline {
     nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     gitRepo = 'https://github.com/Silverpeas/silverpeasmobile'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    branch = fetchBranchFromJobName()
+    branch = ''
     parentVersion = ''
     buildVersion = ''
     release = ''
@@ -78,7 +78,10 @@ pipeline {
     stage('Resolve dependency on Silverpeas') {
       steps {
         script {
-          String silverpeasJobName = "Silverpeas_${branch}_AutoDeploy"
+          String devType = getBranchTypeFromJobName()
+          branch = getBranch(devType)
+          echo "Working on branch ${branch}"
+          String silverpeasJobName = "Silverpeas_${devType}_AutoDeploy"
           copyArtifacts projectName: silverpeasJobName, flatten: true
           def silverpeasBuild = readYaml file: 'build.yaml'
           parentVersion = silverpeasBuild.parent
@@ -116,14 +119,14 @@ pipeline {
         }
       }
       steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
         sh """
           mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
           git commit -am "Update parent POM to version ${parentVersion}"
+          git push origin HEAD:${branch}
           """
-        sh '''
-          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
-          git push origin HEAD:master
-          '''
       }
     }
     stage('Update dependency on Silverpeas') {
@@ -136,14 +139,14 @@ pipeline {
         }
       }
       steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
         sh """
           sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${buildVersion}/g" pom.xml
           git commit -am "Update dependency on Silverpeas to version ${buildVersion}"
+          git push origin HEAD:${branch}
           """
-        sh '''
-          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
-          git push origin HEAD:master
-          '''
       }
     }
     stage('Build and Publish') {
@@ -192,11 +195,16 @@ pipeline {
   }
 }
 
-String fetchBranchFromJobName() {
+String getBranchTypeFromJobName() {
   Matcher matcher = env.JOB_NAME =~ /.+_([a-zA-Z0-9.]+)_.+/
-  String branch = (matcher.matches() ? matcher[0][1] : '').toLowerCase()
-  if (branch == '') {
-    error 'The Jenkins job is misnamed! Expecting to find the branch name in it'
+  String type = (matcher.matches() ? matcher[0][1] : '')
+  if (type == '') {
+    error 'The Jenkins job is misnamed! Expecting to find the branch type in it'
   }
-  return branch == 'stable' ? params.STABLE : branch
+  return type;
+}
+
+String getBranch(String branchType) {
+  String typeInLowerCase = branchType.toLowerCase()
+  return typeInLowerCase == 'stable' ? params.STABLE : typeInLowerCase
 }
