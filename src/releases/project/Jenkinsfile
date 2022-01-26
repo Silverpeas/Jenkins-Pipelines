@@ -1,23 +1,38 @@
 /**
- * Pipeline to release a stable version from given build version of the JCR Access Control library
- * for JackRabbit.
+ * Pipeline to release a stable version of the definition of Silverpeas projects from either the
+ * main development branch or a patch development branch of a released stable major or minor
+ * version. The definition of Silverpeas projects is made up of three projects:
+ * silverpeas-dependencies-bom in which are declared the commons dependencies for Silverpeas,
+ * silverpeas-test-dependencies-bom in which are declared the dependencies to run tests against
+ * some parts of Silverpeas, and Silverpeas-Project that is the hat covering the two previous
+ * projects and that define all that is required to build and publish a Silverpeas project as well
+ * as to generate and publish its documentation.
+ *
+ * This pipeline expects the following environment variable to be set:
+ * IMAGE_FOR_STABLE  the version of the Docker image to be used by this pipeline for stable version
+ *                   of the project.
  *
  * This pipeline requires the following parameters:
- * BRANCH the SCM branch from which the release will be done.
+ * BRANCH  the SCM branch from which the release will be done.
  *
  * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
  */
+
+String imageVersion = params.BRANCH == 'master' ? 'latest' : env.IMAGE_FOR_STABLE
+
 pipeline {
 
   agent {
     docker {
-      image 'silverpeas/silverbuild'
-      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
-          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
-          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
-          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
-          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+      image "silverpeas/silverbuild:${imageVersion}"
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
     }
   }
 

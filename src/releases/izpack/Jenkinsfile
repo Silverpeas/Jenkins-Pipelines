@@ -1,0 +1,178 @@
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to publish an IzPack installer of Silverpeas at a stable version for testing purpose.
+ *
+ * This pipeline is triggered by another one, say the one releasing a new stable version of
+ * Silverpeas. For major or minor version of Silverpeas, a new branch in the SCM will be created in
+ * order to pursuit the constructing of IzPack installer of patch versions of Silverpeas from this
+ * branch.
+ *
+ * This pipeline expects the following environment variables to be set:
+ * STABLE_BRANCH     the SCM branch in which the current stable version of the project is currently
+ *                   maintained
+ *
+ * It requires the following parameters:
+ * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose
+ * WILDFLY_VERSION    (optional) the version of Wildfly atop of which Silverpeas will run. If not
+ *                    set, then the value in the Dockerfile isn't updated and it is the wildfly
+ *                    version as set in the Dockerfile that will be used.
+ */
+
+String imageVersion = getDockerImageVersion()
+
+pipeline {
+
+  agent {
+    docker {
+      image "silverpeas/silverbuild:${imageVersion}"
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+    }
+  }
+
+  parameters {
+    string (
+        description: 'the version of Silverpeas for which an IzPack installer will be built',
+        name: 'SILVERPEAS_VERSION'
+    )
+    string (
+        defaultValue: '',
+        description: 'the version of Wildfly to use for running Silverpeas',
+        name: 'WILDFLY_VERSION'
+    )
+  }
+
+  environment {
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-Izpack-Installer'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
+    branch = getBranch()
+    currentParentVersion = ''
+    actualParentVersion = ''
+  }
+
+  stages {
+    stage('Check the version of Silverpeas') {
+      when {
+        expression { !isVersionCorrect() &&  (branch == 'master' || branch == env.STABLE_BRANCH) }
+
+      }
+      steps {
+        error "Only last stable versions of Silverpeas are accepted!"
+      }
+    }
+    stage('Prepare the publishing') {
+      steps {
+        git([url: gitRepo, branch: branch, credentialsId: gitCredential])
+        script {
+          def pom = readMavenPom()
+          currentParentVersion = pom.parent.version
+          sh "curl -fsSL -o pom-silverpeas.xml ${mavenRepo}/org/silverpeas/silverpeas-assembly/${params.SILVERPEAS_VERSION}/silverpeas-assembly-${params.SILVERPEAS_VERSION}.pom"
+          def silverpeasPom = readMavenPom file: 'pom-silverpeas.xml'
+          actualParentVersion = silverpeasPom.parent.version
+          sh 'rm -f pom-silverpeas.xml'
+        }
+      }
+    }
+    stage('Update POM parent version') {
+      when {
+        expression { actualParentVersion != currentParentVersion }
+      }
+      steps {
+        sh """
+             mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${actualParentVersion}]"
+             git commit -am "Update parent POM to version ${actualParentVersion}"
+             """
+      }
+    }
+    stage('Publish izPack Installer') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
+        script {
+          String wildflyVersion = params.WILDFLY_VERSION.replace('.Final', '')
+          sh """
+              sed -i -e "s/<wildfly.version>[0-9a-zA-Z.-]\\+/<wildfly.version>${wildflyVersion}/g" pom.xml
+              mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${params.SILVERPEAS_VERSION}
+              mvn clean install
+              git commit -am "Build and publish the Izpack installer for Silverpeas ${params.SILVERPEAS_VERSION}"
+              git tag ${params.SILVERPEAS_VERSION}
+              git push origin HEAD:${branch}
+              git push origin --tags
+              """
+        }
+      }
+    }
+    stage('create next stable branch') {
+      when {
+        expression { (branch == env.STABLE_BRANCH || branch == 'master') && !isPatchVersion() }
+      }
+      steps {
+        String nextVersion = getNextVersion()
+        script {
+          sh """
+          git checkout -b ${params.SILVERPEAS_VERSION}.x
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}
+          git commit -am "Prepare branch ${params.SILVERPEAS_VERSION}.x for minor versions"
+          git push origin ${params.SILVERPEAS_VERSION}.x
+          """
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = params.SILVERPEAS_VERSION
+      }
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}
+
+String getNextVersion() {
+  Matcher m = params.SILVERPEAS_VERSION =~ /^([0-9.]+)-rc(\d+)/
+  String nextVersion
+  if (m.matches()) {
+    nextVersion = "${m.group(1)}-rc${(m.group(2) as Integer) + 1}"
+  } else {
+    String[] parts = version.split('\\.')
+    nextVersion = parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
+  }
+  return nextVersion
+}
+
+String getBranch() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
+}
+
+boolean isVersionCorrect() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+(.\\d+)?)$'
+  return matcher.matches()
+}
+
+boolean isPatchVersion() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+.\\d+)$'
+  return matcher.matches()
+}
+
+String getDockerImageVersion() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}" : 'latest'
+}

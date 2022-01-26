@@ -1,0 +1,184 @@
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to construct and to register a Docker image of a stable version of Silverpeas for
+ * testing purpose.
+ *
+ * This pipeline is triggered by another one, say the one releasing a new stable version of
+ * Silverpeas. The Docker image will be tagged with the version of Silverpeas, and as latest
+ * only for a major or a minor version. For later, a new branch in the SCM will be created in order
+ * to pursuit the constructing of Docker images of patch versions of Silverpeas from this branch.
+ *
+ * It requires the following parameters:
+ * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose
+ * WILDFLY_VERSION    (optional) the version of Wildfly atop of which Silverpeas will run. If not
+ *                    set, then the value in the Dockerfile isn't updated and it is the wildfly
+ *                    version as set in the Dockerfile that will be used.
+ */
+pipeline {
+  
+  agent any
+
+  parameters {
+    string (
+        description: 'the version of Silverpeas to run in Docker for testing purpose',
+        name: 'SILVERPEAS_VERSION'
+    )
+    string (
+        defaultValue: '',
+        description: 'Version of Wildfly to use for running Silverpeas',
+        name: 'WILDFLY_VERSION'
+    )
+  }
+
+  environment {
+    registryCredential = 'dockerhub-mmoquillon'
+    gitRepo = 'https://github.com/Silverpeas/docker-silverpeas-test'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    imageName = 'silverpeas/silverpeas-test'
+    branch = getBranch()
+    dockerImage = null
+    modified = '0'
+    buildNb = '' // 0 means the build number has been changed, others numbers are the build number
+  }
+
+  stages {
+    stage('Check the Docker image version to build') {
+      when {
+        expression { !isVersionCorrect() }
+
+      }
+      steps {
+        error "Only stable versions of Silverpeas are accepted!"
+      }
+    }
+    stage('Prepare the project') {
+      steps {
+        git([url: gitRepo, branch: branch, credentialsId: gitCredential])
+        script {
+          buildNb = sh script: 'grep -oP \'(?<=build=)\\d+\' Dockerfile', returnStdout: true
+        }
+      }
+    }
+    stage('Update Wildfly version') {
+      when {
+        expression { params.WILDFLY_VERSION && params.WILDFLY_VERSION != '' }
+      }
+      steps {
+        script {
+          String wildflyVersion = params.WILDFLY_VERSION.replace('.Final', '')
+          echo "Update Wildfly to ${wildflyVersion}"
+          modified = sh script: """
+            sed -i -e \"s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${wildflyVersion}/g\" Dockerfile
+            git diff --quiet
+            """, returnStatus: true
+        }
+      }
+    }
+    stage('Update Silverpeas version') {
+      steps {
+        echo "Update Silverpeas to ${params.SILVERPEAS_VERSION}"
+        script {
+          String status = sh script: """
+            sed -i -e "s/SILVERPEAS_VERSION=[0-9a-zA-Z.-]\\+/SILVERPEAS_VERSION=${params.SILVERPEAS_VERSION}/g" Dockerfile
+            git diff --quiet
+            """, returnStatus: true
+          if (status != '0') {
+            modified = status
+            buildNb = '0'
+            sh 'sed -i -e "s/build=.\\+/build=1/g" Dockerfile'
+          }
+        }
+      }
+    }
+    stage('Update image build version') {
+      when {
+        expression { buildNb != '0' }
+      }
+      steps {
+        script {
+          String status = sh script: """
+            sed -i -e "s/build=.\\+/build=${buildNb as int + 1}/g" Dockerfile
+            git diff --quiet
+            """, returnStatus: true
+          modified = status == '0' ? modified : status
+        }
+      }
+    }
+    stage('Push modifications') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { modified != '0' }
+      }
+      steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
+        sh """
+          git commit -am \"Upgrade for Silverpeas ${params.SILVERPEAS_VERSION}\"
+          git push origin HEAD:${branch}
+          git push --tags
+          """
+      }
+    }
+    stage('Build image') {
+      steps {
+        script {
+          dockerImage = docker.build "${imageName}:${params.SILVERPEAS_VERSION}"
+        }
+      }
+    }
+    stage('Register image') {
+      steps{
+        script {
+          docker.withRegistry('', registryCredential ) {
+              dockerImage.push()
+            if (branch == 'master') {
+              dockerImage.push('latest')
+            }
+          }
+        }
+      }
+    }
+    stage('Create new stable branch') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { branch == 'master' }
+      }
+      steps {
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
+        sh "git checkout -b ${params.SILVERPEAS_VERSION}.x"
+        sh "git push origin HEAD:${params.SILVERPEAS_VERSION}.x"
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = params.SILVERPEAS_VERSION
+      }
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}
+
+String getBranch() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
+}
+
+boolean isVersionCorrect() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+(.\\d+)?)$'
+  return matcher.matches()
+}

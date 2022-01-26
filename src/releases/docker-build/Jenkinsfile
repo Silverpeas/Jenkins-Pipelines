@@ -1,0 +1,162 @@
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to construct and to register a Docker image dedicated to the build of Silverpeas
+ * projects.
+ *
+ * Some parameters for this pipeline are required as they are used as arguments in the image building.
+ * The version of the Docker image to build is also provided as a parameter for this pipeline. If the version
+ * is other than 'latest', then the Git project is tagged with that version once the image build done.
+ *
+ * It requires the following parameters:
+ * IMAGE_VERSION   the version number of the image to build. The version of the image should match the version
+ *                 number of the Silverpeas platform for which the projects will be built. For the next
+ *                 major or minor version of the Silverpeas platform in development, 'latest' is the
+ *                 recommended choice.
+ * WILDFLY_VERSION the version of Wildfly prepared for running the integration tests
+ * JAVA_VERSION    the version of Java on which the Silverpeas platform is based.
+ */
+pipeline {
+
+  agent any
+
+  parameters {
+    string(
+        description: 'Version of Wildfly to use in integration tests',
+        name: 'WILDFLY_VERSION'
+    )
+    string(
+        defaultValue: '11',
+        description: 'Version of Java to build a Silverpeas project',
+        name: 'JAVA_VERSION'
+    )
+    string(
+        defaultValue: 'latest',
+        description: 'Version of the Docker image to build. Should match the Silverpeas version or ' +
+            'latest for the current major or minor version of Silverpeas in development',
+        name: 'IMAGE_VERSION'
+    )
+  }
+
+  environment {
+    registryCredential = 'dockerhub-mmoquillon'
+    gitRepo = 'https://github.com/Silverpeas/docker-silverpeas-build'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    imageName = 'silverpeas/silverbuild'
+  }
+
+  stages {
+    stage('Check the Docker image version to build') {
+      when {
+        expression { !isVersionCorrect() }
+
+      }
+      steps {
+        error "Image version not accepted: ${params.IMAGE_VERSION}"
+      }
+    }
+    stage('Checkout the project') {
+      steps {
+        git([url: gitRepo, credentialsId: gitCredential])
+      }
+    }
+    stage('Release current state as stable version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { params.IMAGE_VERSION != 'latest' }
+      }
+      steps {
+        steps {
+          sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
+          sh """
+            git tag ${params.IMAGE_VERSION}
+            git push origin --tags
+            """
+          script {
+            def dockerImage = docker.build "${imageName}:${params.IMAGE_VERSION}"
+            docker.withRegistry('', registryCredential) {
+              dockerImage.push()
+            }
+          }
+        }
+      }
+    }
+    stage('Prepare the next latest version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { params.IMAGE_VERSION != 'latest' }
+      }
+      steps {
+        sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
+        sh """
+          sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
+          sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
+          sed -i -e "s/version=.\\+/version=${params.IMAGE_VERSION}/g" Dockerfile
+          sed -i -e "s/build=.\\+/build=1/g" Dockerfile
+          git commit -am "Update Dockerfile for building and registering image ${params.IMAGE_VERSION}"
+          git push origin HEAD:master
+          """
+      }
+    }
+    stage('Udpate current latest version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { params.IMAGE_VERSION == 'latest' }
+      }
+      steps {
+        script {
+          String buildNb = sh script: 'grep -oP \'(?<=build=)\\d+\' Dockerfile', returnStdout: true
+          String status = sh script: """
+            sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
+            sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
+            git diff --quiet
+            """, returnStatus: true
+          if (status == '1') {
+            sh """
+              sed -i -e "s/build=.\\+/build=${buildNb as int + 1}/g" Dockerfile
+              git commit -am "Upgrade for Wildfly ${params.WILDFLY_VERSION} and Java ${params.JAVA_VERSION}"
+              git push origin HEAD:master
+              """
+          }
+        }
+      }
+    }
+    stage('Publish latest version') {
+      steps {
+        script {
+          def dockerImage = docker.build "${imageName}:latest"
+          docker.withRegistry('', registryCredential) {
+            dockerImage.push()
+          }
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = params.IMAGE_VERSION
+      }
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}
+
+boolean isVersionCorrect() {
+  if (params.IMAGE_VERSION == 'latest') {
+    return true
+  }
+  Matcher matcher = params.IMAGE_VERSION =~ '^(\\d+.\\d+(.\\d+)?)$'
+  return matcher.matches()
+}

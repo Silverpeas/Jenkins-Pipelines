@@ -8,6 +8,12 @@ import java.util.regex.Matcher
  * one of Silverpeas meaning that the version of Silverpeas Mobile follows the version of
  * Silverpeas on which it depends.
  *
+ * This pipeline expects the following environment variables to be set:
+ * STABLE_BRANCH     the SCM branch in which the current stable version of the project is currently
+ *                   maintained
+ * IMAGE_FOR_STABLE  the version of the Docker image to be used by this pipeline for stable version
+ *                   of the project.
+ *
  * Because this pipeline is based upon some convention rules, some expectations have to be
  * fulfilled:
  * Jenkins Job name : the name of the Jenkins job executing this pipeline has to be named as
@@ -22,39 +28,29 @@ import java.util.regex.Matcher
  *                             for older stable versions.
  *
  * This pipeline requires the following parameters:
- * STABLE        (optional) the name of the SCM branch in which is currently developed the stable
- *               version of Silverpeas. Must be updated at each major and minor version release.
- *               It is set by default to the branch of the latest stable version of Silverpeas.
- * IMAGE_VERSION the version of the Docker image to use for running the job as for each
- *               version of the image correspond a given version lifecycle of Silverpeas.
  * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped.
  *               False by default.
  */
+
+String branchType = getBranchTypeFromJobName()
+String imageVersion = branchType.toLowerCase() == 'master' ? 'latest' : env.IMAGE_FOR_STABLE
+
 pipeline {
 
   agent {
     docker {
-      image "silverpeas/silverbuild:${params.IMAGE_VERSION}"
-      args '-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml' +
-          ' -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml' +
-          ' -v $HOME/.gitconfig:/home/silverbuild/.gitconfig' +
-          ' -v $HOME/.ssh:/home/silverbuild/.ssh' +
-          ' -v $HOME/.gnupg:/home/silverbuild/.gnupg'
+      image "silverpeas/silverbuild:${imageVersion}"
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
     }
   }
 
   parameters {
-    string (
-        defaultValue: '6.2.x',
-        description: 'The SCM branch corresponding to the current stable version of Silverpeas',
-        name: 'STABLE'
-    )
-    /* Commented to allow to set specifically a value directly in the job in Jenkins.
-    string (
-        defaultValue: 'latest',
-        description: 'Version of the Docker image to use to build the project',
-        name: 'IMAGE_VERSION'
-    )*/
     booleanParam (
         defaultValue: false,
         description: 'Flag indicating if the excecution of the tests should be skipped',
@@ -66,7 +62,7 @@ pipeline {
     nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     gitRepo = 'https://github.com/Silverpeas/silverpeasmobile'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    branch = ''
+    branch = getBranch(branchType)
     parentVersion = ''
     buildVersion = ''
     release = ''
@@ -78,10 +74,8 @@ pipeline {
     stage('Resolve dependency on Silverpeas') {
       steps {
         script {
-          String devType = getBranchTypeFromJobName()
-          branch = getBranch(devType)
           echo "Working on branch ${branch}"
-          String silverpeasJobName = "Silverpeas_${devType}_AutoDeploy"
+          String silverpeasJobName = "Silverpeas_${branchType}_AutoDeploy"
           copyArtifacts projectName: silverpeasJobName, flatten: true
           def silverpeasBuild = readYaml file: 'build.yaml'
           parentVersion = silverpeasBuild.parent
@@ -206,5 +200,6 @@ String getBranchTypeFromJobName() {
 
 String getBranch(String branchType) {
   String typeInLowerCase = branchType.toLowerCase()
-  return typeInLowerCase == 'stable' ? params.STABLE : typeInLowerCase
+  return typeInLowerCase == 'stable' ? env.STABLE_BRANCH : typeInLowerCase
 }
+

@@ -1,0 +1,170 @@
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to prepare the production-ready Docker image of a new stable version of Silverpeas.
+ * This image will be built and registered among the official supported Docker images in the
+ * Docker Hub.
+ *
+ * This pipeline is triggered by another one, say the one releasing a new stable version of
+ * Silverpeas. The Docker image will be tagged with the version of Silverpeas, and as latest
+ * only for a major or a minor version. For later, a new branch in the SCM will be created in order
+ * to pursuit the constructing of Docker images of patch versions of Silverpeas from this branch.
+ *
+ * It requires the following parameters:
+ * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose
+ * WILDFLY_VERSION    (optional) the version of Wildfly atop of which Silverpeas will run. If not
+ *                    set, then the value in the Dockerfile isn't updated and it is the wildfly
+ *                    version as set in the Dockerfile that will be used.
+ */
+pipeline {
+  
+  agent any
+
+  parameters {
+    string (
+        description: 'the version of Silverpeas to run in Docker for production purpose',
+        name: 'SILVERPEAS_VERSION'
+    )
+    string (
+        defaultValue: '',
+        description: 'the version of Wildfly to use for running Silverpeas',
+        name: 'WILDFLY_VERSION'
+    )
+  }
+
+  environment {
+    registryCredential = 'dockerhub-mmoquillon'
+    gitRepoProject = 'https://github.com/Silverpeas/docker-silverpeas-prod'
+    gitRepoDockerHub = 'https://github.com/Silverpeas/official-images'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
+    project = 'docker-silverpeas-prod'
+    dockerhub = 'official-images'
+    branch = getBranch()
+    versionExists = '0'
+    silverpeasVersion = params.SILVERPEAS_VERSION
+  }
+
+  stages {
+    stage('Check the Docker image version to build') {
+      when {
+        expression { !isVersionCorrect() }
+      }
+      steps {
+        error "Only stable versions of Silverpeas are accepted!"
+      }
+    }
+    stage('Prepare the project') {
+      steps {
+        dir(project) {
+          git([url: gitRepoProject, branch: branch, credentialsId: gitCredential])
+          script {
+            versionExists = sh script:
+                "curl -fsSL -o pom-silverpeas.xml ${mavenRepo}/org/silverpeas/silverpeas-assembly/${params.SILVERPEAS_VERSION}/silverpeas-assembly-${params.SILVERPEAS_VERSION}.pom",
+                returnStatus: true
+            silverpeasVersion = sh script: 'grep -oP \'(?<=SILVERPEAS_VERSION=)[0-9.]+\' Dockerfile', returnStdout: true
+          }
+        }
+      }
+    }
+    stage('Check Silverpeas version is new one') {
+      when {
+        expression { silverpeasVersion == params.SILVERPEAS_VERSION || versionExists != '0' }
+      }
+      steps {
+        error "Either there is no change or Silverpeas ${params.SILVERPEAS_VERSION} doesn't exist"
+      }
+    }
+    stage('Update Dockerfile for new version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        dir(project) {
+          sh '''
+            git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+            '''
+          sh """
+            ./generate-dockerfile.sh ${params.SILVERPEAS_VERSION} ${params.WILDFLY_VERSION.replace('.Final', '')}
+            git commit -am "Generate Dockerfile for Silverpeas ${params.SILVERPEAS_VERSION}"
+            git tag ${params.SILVERPEAS_VERSION}
+            git push origin HEAD:${branch}
+            git push origin --tags
+            ./generate-docker-library.sh > ${env.WORKSPACE}/silverpeas
+            """
+        }
+      }
+    }
+    stage('Create new stable branch') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { branch == 'master' }
+      }
+      steps {
+        dir(project) {
+          sh '''
+            git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+            '''
+          sh "git checkout -b ${params.SILVERPEAS_VERSION}.x"
+          sh "git push origin HEAD:${params.SILVERPEAS_VERSION}.x"
+        }
+      }
+    }
+    stage('Update official Docker images library') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        dir(dockerhub) {
+          git([url: gitRepoDockerHub, credentialsId: gitCredential])
+          sh '''
+            git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+            '''
+          sh """
+            git remote add docker https://github.com/docker-library/official-images.git
+            git pull docker master
+            git push origin HEAD:master
+            git checkout -b silverpeas-${params.SILVERPEAS_VERSION}
+            cp ${env.WORKSPACE}/silverpeas library/
+            git commit -am "Update Docker image for Silverpeas version ${params.SILVERPEAS_VERSION}"
+            git push origin silverpeas-${params.SILVERPEAS_VERSION}
+            """
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = params.SILVERPEAS_VERSION
+        emailext(
+            subject: "Production-ready Docker image built",
+            body: """
+The production-ready Docker image template of Silverpeas was built for the version ${params.SILVERPEAS_VERSION}.
+The official DockerHub library was updated with it.
+You can then create a PR in https://github.com/docker-library/official-images to integrate the new image into the DockerHub Official Repository.
+""",
+            to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+        )
+      }
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}
+
+String getBranch() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
+}
+
+boolean isVersionCorrect() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+(.\\d+)?)$'
+  return matcher.matches()
+}
