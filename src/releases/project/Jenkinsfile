@@ -52,7 +52,7 @@ pipeline {
     version = ''
     nextVersion = ''
     jcrAccessControl = ''
-    artifact = 'target/build.yaml'
+    artifact = 'target/release.yaml'
   }
 
   stages {

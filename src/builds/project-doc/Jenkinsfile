@@ -1,3 +1,5 @@
+import java.util.regex.Matcher
+
 /**
  * Pipeline to publish the web site of the open-source community of Silverpeas. It doesn't publish
  * the documentation of each project on which Silverpeas is made up. Those documentations are
@@ -40,7 +42,8 @@ pipeline {
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     parentVersion = ''
-    modified = '0'
+    currentWildflyVersion = ''
+    nextWildflyVersion = ''
     pom = null
   }
 
@@ -51,11 +54,20 @@ pipeline {
         copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
         script {
           def parentBuild = readYaml file: 'build.yaml'
-          def isReleased = sh returnStatus: true, script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
-          parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
+          def isReleased = sh returnStatus: true, script: "curl --output pom-project.xml --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
+          if (isReleased == '0') {
+            parentVersion = parentBuild.release
+            def pomProject = readMavenPom file: 'pom-project.xml'
+            currentWildflyVersion = pomProject.properties['wildfly.version'].replace('.Final', '')
+            sh 'rm -f pom-project.xml'
+          } else {
+            parentVersion = parentBuild.version
+            currentWildflyVersion = ''
+          }
+          nextWildflyVersion = parentBuild.wildfly.replace('.Final', '')
           pom = readMavenPom()
-          sh 'rm -f build.yaml'
         }
+        sh 'rm -f build.yaml'
       }
     }
     stage('Check POM parent version') {
@@ -72,26 +84,70 @@ pipeline {
       }
       steps {
         script {
-          modified = sh script: """
-          mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[$parentVersion]"
-          git commit -am "Update parent POM to version $parentVersion"
-          git diff --quiet
-          """, returnStatus: true
+          sh """
+            mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[$parentVersion]"
+            git commit -am "Update parent POM to version $parentVersion"
+            """
         }
+      }
+    }
+    stage('Update current version of Wildfly') {
+      when {
+        expression {
+          currentWildflyVersion != '' && currentWildflyVersion != pom.properties['current_wildfly_version']
+        }
+      }
+      steps {
+        sh """
+          sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${currentWildflyVersion.split('.')[0]}/g" pom.xml
+          sed -i -e "s/<current_wildfly_version>[0-9.]\\+/<current_wildfly_version>${currentWildflyVersion}/g" pom.xml
+          git commit -am "Update current Wildfly version to ${currentWildflyVersion}"
+          """
+      }
+    }
+    stage('Update next version of Wildfly') {
+      when {
+        expression {
+          nextWildflyVersion != '' && nextWildflyVersion != pom.properties['next_wildfly_version']
+        }
+      }
+      steps {
+        sh """
+          sed -i -e "s/<next_wildfly_release>[0-9]\\+/<next_wildfly_release>${nextWildflyVersion.split('.')[0]}/g" pom.xml
+          sed -i -e "s/<next_wildfly_version>[0-9.]\\+/<next_wildfly_version>${nextWildflyVersion}/g" pom.xml
+          git commit -am "Update next Wildfly version to ${nextWildflyVersion}"
+          """
       }
     }
     stage('Update build version of Silvereas') {
       when {
-        expression { params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' }
+        expression {
+          params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' &&
+              params.SILVERPEAS_VERSION.contains('-build') &&
+              params.SILVERPEAS_VERSION != pom.properties['installer_build_version']
+        }
       }
       steps {
-        script {
-          String status = sh script: """
+        sh """
           sed -i -e "s/<installer_build_version>[0-9a-zA-Z.-]\\+/<installer_build_version>${params.SILVERPEAS_VERSION}/g" pom.xml
           git commit -am "Update the build version of Silverpeas to ${params.SILVERPEAS_VERSION}"
-          """, returnStatus: true
-          modified = status == '0' ? modified : status
+          """
+      }
+    }
+    stage('Update stable version of Silverpeas') {
+      when {
+        expression {
+          params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' &&
+              isStableVersion() && params.SILVERPEAS_VERSION != pom.properties['installer_stable_version']
         }
+      }
+      steps {
+        sh """
+          sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${params.SILVERPEAS_VERSION}/g" pom.xml
+          sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${params.SILVERPEAS_VERSION}/g" pom.xml
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${params.SILVERPEAS_VERSION}
+          git commit -am "Update the stable version of Silverpeas to ${params.SILVERPEAS_VERSION}"
+          """
       }
     }
     stage('Publish the web site') {
@@ -103,19 +159,21 @@ pipeline {
       environment {
         GIT_AUTH = credentials("${gitCredential}")
       }
-      when {
-        expression { modified != '0' }
-      }
       steps {
-        sh '''
+        sh script: '''
           git config --local credential.helper "!f() { echo username=\\$GIT_AUTH_USR; echo password=\\$GIT_AUTH_PSW; }; f"    
           git push origin HEAD:master
-          '''
+          ''', returnStatus: true
       }
     }
   }
 
   post {
+    success {
+      script {
+        currentBuild.displayName = params.SILVERPEAS_VERSION
+      }
+    }
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
@@ -123,4 +181,9 @@ pipeline {
             sendToIndividuals       : true])
     }
   }
+}
+
+boolean isStableVersion() {
+  Matcher m = params.SILVERPEAS_VERSION =~ '^\\d+.\\d+(.\\d+)?$'
+  return m.matches()
 }

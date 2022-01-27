@@ -7,14 +7,23 @@ import java.util.regex.Matcher
  * major/minor version from the master branch. It takes also in charge the release of a patch
  * version from a previous stable branch other than the current one.
  *
- * Once the release is successfully done, the pipeline triggers extra jobs like the publishing of
- * Docker images for the new version of Silverpeas and the update of the community web site.
+ * Once the release is successfully done, the pipeline triggers extra jobs that must exist:
+ * 'Silverpeas IzPack Installer'          to publish an IzPack installer of the new version of
+ *                                        Silverpeas.
+ * 'Silverpeas Dev Image'                 to publish a Docker image of a dev environment for working
+ *                                        on the new stable branch of Silverpeas.
+ * 'Silverpeas Projects Build Image'      to publish a Docker image for building a Silverpeas
+ *                                        project.
+ * 'Silverpeas Test Image'                to publish a Docker image of the new version of Silverpeas
+ *                                        for testing purpose.
+ * 'Silverpeas Prod Image'                to publish a production-ready Docker image of the new
+ *                                        version of Silverpeas.
+ * 'Silverpeas_Documentation_Publishing'  to publish the documentation of the new version of
+ *                                        Silverpeas.
  *
  * For doing, this pipeline expects the following environment variables to be set:
  * STABLE_BRANCH     the SCM branch in which the current stable version of the project is currently
  *                   maintained
- * IMAGE_FOR_STABLE  the version of the Docker image to be used by this pipeline for stable version
- *                   of the project.
  *
  * This pipeline requires the following parameters:
  * BUILD_VERSION the build version of Silverpeas from which the release has to be done.
@@ -67,7 +76,7 @@ pipeline {
     nextVersion = ''
     pomParentVersion = ''
     buildToRelease = null
-    artifact = 'target/build.yaml'
+    artifact = 'target/release.yaml'
   }
 
   stages {
@@ -156,8 +165,8 @@ pipeline {
         script {
           def parentBuild = readYaml file: 'build.yaml'
           buildToRelease.parent = parentBuild.release
-          sh 'rm -f build.yaml'
         }
+        sh 'rm -f build.yaml'
       }
     }
 
@@ -411,10 +420,8 @@ pipeline {
     stage('Publish Silverpeas Documentation') {
       echo 'Trigger the documentation generation and publishing job'
       build job: 'Silverpeas_Documentation_Publishing', parameters: [
-          string(name: 'IMAGE', value: dockerImage),
-          string(name: 'VERSION', value: buildToRelease.release),
-          string(name: 'PRJ_VERSION', value: parentVersion)
-      ], wait: false
+          string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release)
+      ], quietPeriod: 20, wait: false
     }
 
     stage('Create YAML release report') {
@@ -440,7 +447,7 @@ pipeline {
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org, miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
             sendToIndividuals       : true])
     }
   }

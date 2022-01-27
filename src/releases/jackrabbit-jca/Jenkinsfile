@@ -36,7 +36,7 @@ pipeline {
     version = ''
     commit = ''
     pom = null
-    artifact = 'target/build.yaml'
+    artifact = 'target/release.yaml'
   }
 
   stages {

@@ -35,7 +35,7 @@ pipeline {
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     version = ''
     commit = ''
-    artifact = 'target/build.yaml'
+    artifact = 'target/release.yaml'
   }
 
   stages {
