@@ -95,7 +95,7 @@ pipeline {
           '''
       }
     }
-    stage('Create YAML build report') {
+    stage('Create YAML release report') {
       steps {
         script {
           writeYaml file: artifact, data: ['release': version,

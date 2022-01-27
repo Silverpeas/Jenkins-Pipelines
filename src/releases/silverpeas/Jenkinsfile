@@ -170,6 +170,13 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
+        }
+      }
+    }
+
+    stage('Prepare next version of Silverpeas Core') {
+      steps {
+        dir(project.core) {
           prepareNextVersion project: projects.core,
               version: buildToRelease.release,
               nextVersion: nextVersion,
@@ -195,6 +202,17 @@ pipeline {
       }
     }
 
+    stage('Prepare next version of Silverpeas Components') {
+      steps {
+        dir(projects.components) {
+          prepareNextVersion project: projects.components,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
     stage('Release Silverpeas Assembly') {
       steps {
         dir (projects.assembly) {
@@ -204,6 +222,17 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
+          prepareNextVersion project: projects.assembly,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
+    stage('Prepare next version of Silverpeas Assembly') {
+      steps {
+        dir (projects.assembly) {
           prepareNextVersion project: projects.assembly,
               version: buildToRelease.release,
               nextVersion: nextVersion,
@@ -229,6 +258,17 @@ pipeline {
       }
     }
 
+    stage('Prepare next version of Silverpeas Setup') {
+      steps {
+        dir(projects.setup) {
+          prepareNextVersion project: projects.setup,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
     stage('Release Silverpeas Distribution') {
       steps {
         dir(projects.distribution) {
@@ -238,6 +278,17 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
+          prepareNextVersion project: projects.distribution,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
+    stage('Prepare next version of Silverpeas Distribution') {
+      steps {
+        dir(projects.distribution) {
           prepareNextVersion project: projects.distribution,
               version: buildToRelease.release,
               nextVersion: nextVersion,
@@ -263,6 +314,17 @@ pipeline {
       }
     }
 
+    stage('Prepare next version of Silverpeas Looks') {
+      steps {
+        dir(projects.looks) {
+          prepareNextVersion project: projects.looks,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
     stage('Release Silverpeas Mobile') {
       steps {
         dir(projects.mobile) {
@@ -272,6 +334,18 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
+          prepareNextVersion project: projects.mobile,
+              version: buildToRelease.release,
+              nextVersion: nextVersion,
+              isPatch: isPatchVersion
+        }
+      }
+    }
+
+    stage('Prepare next version of Silverpeas Mobile') {
+      steps {
+        dir(projects.mobile) {
+          git credentialsId: gitCredential, branch: branch, url: (gitBaseRepo + projects.mobile)
           prepareNextVersion project: projects.mobile,
               version: buildToRelease.release,
               nextVersion: nextVersion,
@@ -334,7 +408,7 @@ pipeline {
       }
     }
 
-    stage('Silverpeas Documentation Generation') {
+    stage('Publish Silverpeas Documentation') {
       echo 'Trigger the documentation generation and publishing job'
       build job: 'Silverpeas_Documentation_Publishing', parameters: [
           string(name: 'IMAGE', value: dockerImage),
@@ -343,7 +417,7 @@ pipeline {
       ], wait: false
     }
 
-    stage('Create YAML build report') {
+    stage('Create YAML release report') {
       steps {
         script {
           writeYaml file: artifact, data: ['release': buildToRelease.release,
