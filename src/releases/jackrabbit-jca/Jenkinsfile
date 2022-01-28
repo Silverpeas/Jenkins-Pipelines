@@ -2,6 +2,9 @@
  * Pipeline to release a stable version from the a given build version of the RAR of JackRabbit
  * JCA customized for Silverpeas.
  *
+ * In order to get the build version, the pipeline requires the Jenkins job aimed at constructing
+ * such build version to be named 'Silverpeas_Jackrabbit-JCA_AutoDeploy'.
+ *
  * This pipeline requires the following parameters:
  * BUILD_VERSION the build version of the project from which the release has to be done.
  *

@@ -2,6 +2,9 @@
  * Pipeline to release a stable version from given build version of the JCR Access Control library
  * for JackRabbit.
  *
+ * In order to get the build version, the pipeline requires the Jenkins job aimed at constructing
+ * such build version to be named 'Silverpeas_JCR-AccessController_AutoDeploy'.
+ *
  * This pipeline requires the following parameters:
  * BUILD_VERSION the build version of the project from which the release has to be done.
  *
@@ -93,7 +96,8 @@ pipeline {
             sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
             mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}
             mvn clean install -Dmaven.test.skip=true -Prelease-sign-artifacts
-            git commit -am "Prepare for development iteration of next version ${nextVersion}"
+            git commit -am "${version} has been released from build ${params.BUILD_VERSION} (${commit}).\\
+Prepare for development iteration of next version ${nextVersion}"
             """
           sh '''
             git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"

@@ -7,6 +7,12 @@ import java.util.regex.Matcher
  * major/minor version from the master branch. It takes also in charge the release of a patch
  * version from a previous stable branch other than the current one.
  *
+ * In order to get the build version, the pipeline requires the Jenkins job aimed at constructing
+ * such build version to be named 'Silverpeas_[PROJECT_TYPE]_AutoDeploy' with [PROJECT_TYPE] being
+ * either 'Master' for the main major or minor version of Silverpeas in development, or 'Stable' for
+ * the next path version in development of the last stable version of Silverpeas, or a branch name
+ * for older stable branch in which patch versions are yet ongoing.
+ *
  * Once the release is successfully done, the pipeline triggers extra jobs that must exist:
  * 'Silverpeas IzPack Installer'          to publish an IzPack installer of the new version of
  *                                        Silverpeas.
@@ -187,6 +193,7 @@ pipeline {
       steps {
         dir(project.core) {
           prepareNextVersion project: projects.core,
+              commit: buildToRelease.commits[projects.core],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -203,10 +210,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.components,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -215,6 +218,7 @@ pipeline {
       steps {
         dir(projects.components) {
           prepareNextVersion project: projects.components,
+              commit: buildToRelease.commits[projects.components],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -231,10 +235,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.assembly,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -243,6 +243,7 @@ pipeline {
       steps {
         dir (projects.assembly) {
           prepareNextVersion project: projects.assembly,
+              commit: buildToRelease.commits[projects.assembly],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -259,10 +260,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.setup,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -271,6 +268,7 @@ pipeline {
       steps {
         dir(projects.setup) {
           prepareNextVersion project: projects.setup,
+              commit: buildToRelease.commits[projects.setup],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -287,10 +285,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.distribution,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -299,6 +293,7 @@ pipeline {
       steps {
         dir(projects.distribution) {
           prepareNextVersion project: projects.distribution,
+              commit: buildToRelease.commits[projects.distribution],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -315,10 +310,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.looks,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -327,6 +318,7 @@ pipeline {
       steps {
         dir(projects.looks) {
           prepareNextVersion project: projects.looks,
+              commit: buildToRelease.commits[projects.looks],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -343,10 +335,6 @@ pipeline {
               version: buildToRelease.release,
               parent: buildToRelease.parent,
               isPatch: isPatchVersion
-          prepareNextVersion project: projects.mobile,
-              version: buildToRelease.release,
-              nextVersion: nextVersion,
-              isPatch: isPatchVersion
         }
       }
     }
@@ -354,8 +342,8 @@ pipeline {
     stage('Prepare next version of Silverpeas Mobile') {
       steps {
         dir(projects.mobile) {
-          git credentialsId: gitCredential, branch: branch, url: (gitBaseRepo + projects.mobile)
           prepareNextVersion project: projects.mobile,
+              commit: buildToRelease.commits[projects.mobile],
               version: buildToRelease.release,
               nextVersion: nextVersion,
               isPatch: isPatchVersion
@@ -539,13 +527,14 @@ void prepareNextVersion(args) {
 
   sh "git checkout ${args.branch}"
   if (fileExists('pom.xml')) {
-    buildSnapshotVersionOfMavenProject(args.nextversion)
+    buildSnapshotVersionOfMavenProject(args.nextVersion)
   } else {
     buildSnapshotVersionOfGradleProject(args.nextVersion)
   }
   withGit {
     sh """
-      git commit -am "Prepare for development iteration of next version ${args.nextversion}"
+      git commit -am "${args.version} has been released from build ${params.BUILD_VERSION} (${args.commit}).\\
+Prepare for development iteration of next version ${args.nextVersion}"
       git push origin:${args.branch}
       """
   }

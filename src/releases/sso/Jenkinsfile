@@ -1,102 +1,164 @@
-package releases.sso
-/*
- * This pipeline requires the following build parameter to be set:
- * BUILD_VERSION: the version number of an existing Silverpeas SSO build from which the release will be performed
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to release a stable version of the Silverpeas SSO library from a given build version of
+ * the project.
+ *
+ * In order to get the build version, the pipeline requires the Jenkins job aimed at constructing
+ * such build version to be named 'Silverpeas_SSO_AutoDeploy'.
+ *
+ * This pipeline requires the following parameters:
+ * BUILD_VERSION the build version of Silverpeas from which the release has to be done.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
  */
-node {
-  catchError {
-    def gitRepo = 'github.com/Silverpeas/Silverpeas-Sso'
-    def version
-    def commit
-    docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        copyArtifacts projectName: 'Silverpeas_SSO_AutoDeploy', flatten: true, selector: specific(params.BUILD_VERSION)
-        def lastBuild = readYaml file: 'build.yaml'
-        version = lastBuild.release
-        commit = lastBuild.commit
-        if (lastBuild.parent.contains('build') || lastBuild.parent.contains('SNAPSHOT')) {
-          error "The version of parent POM must be a stable version for this project to be released. Current version is ${pom.parent.version}"
+pipeline {
+
+  agent {
+    docker {
+      image "silverpeas/silverbuild"
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+    }
+  }
+
+  parameters {
+    string(
+        description: 'The build version of Silverpeas SSO from which the release has to be done',
+        name: 'BUILD_VERSION'
+    )
+  }
+
+  environment {
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-Sso'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    commit = ''
+    version = ''
+    nextVersion = ''
+    parentVersion = ''
+    silverpeasVersion = ''
+    artifact = 'target/release.yaml'
+  }
+
+  stages {
+    stage('Prepare the release') {
+      steps {
+        copyArtifacts projectName: 'Silverpeas_SSO_AutoDeploy', flatten: true,
+            selector: specific(params.BUILD_VERSION)
+        script {
+          def lastBuild = readYaml file: 'build.yaml'
+          version = lastBuild.release
+          commit = lastBuild.commit
+          nextVersion = getNextVersion(version)
         }
-        echo "Prepare the release of Silverpeas SSO ${version}..."
       }
-      stage('Checkout') {
-        fetchFromGithub(gitRepo)
+    }
+    stage('Checkout the build version') {
+      steps {
+        git url: gitRepo, credentialsId: gitCredential
+        sh """
+          git checkout ${commit}
+          git checkout -b release-${version}
+          """
+        script {
+          def pom = readMavenPom()
+          parentVersion = pom.parent.version
+          silverpeasVersion = pom.properties['silverpeas.version']
+        }
       }
-      stage('Release') {
-        releaseProject(gitRepo, commit, version)
+    }
+    stage('Check POM parent version') {
+      when {
+        expression { isStableVersion(parentVersion) }
       }
-      stage('Next Snapshot Version') {
-        prepareNextSnapshotVersion(gitRepo, commit, version)
+      steps {
+        error "The POM parent must be at a stable version"
+      }
+    }
+    stage('Check Silverpeas version') {
+      when {
+        expression { isStableVersion(silverpeasVersion) }
+      }
+      steps {
+        error "The dependency on Silverpeas must be at a stable version"
+      }
+    }
+    stage('Release') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh """
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+          mvn clean deploy -Dmaven.test.skip=true -Pdeployment -Prelease-sign-artifacts
+          git commit -am "Release of ${version} from ${params.BUILD_VERSION} (commit ${commit})"
+          git tag ${version}
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin --tags
+          '''
+      }
+    }
+    stage('Prepare the development of the next version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh """
+          git checkout master
+          sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
+          mvn clean install -Dmaven.test.skip=true
+          git commit -am "${version} has been released from build ${params.BUILD_VERSION} (${commit}).\\
+Prepare for development iteration of next version ${nextVersion}"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin HEAD:master
+          '''
+      }
+    }
+    stage('Create YAML release report') {
+      steps {
+        script {
+          writeYaml file: artifact, data: ['release'   : version,
+                                           'from'      : ['version': params.BUILD_VERSION,
+                                                          'commit' : commit.trim()],
+                                           'parent'    : parentVersion,
+                                           'silverpeas': silverpeasVersion]
+        }
       }
     }
   }
-  step([$class: 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients: "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-        sendToIndividuals: true])
-}
-
-def fetchFromGithub(repo) {
-  sh "rm -rf *"
-  git credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59', poll: false, url: "https://${repo}"
-}
-
-def buildMavenProjectSnapshot(nextVersion) {
-  sh """
-sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
-mvn clean install -Dmaven.test.skip=true
-"""
-}
-
-def buildMavenProjectRelease(version) {
-  def pom = readMavenPom()
-  if (pom.properties['silverpeas.version'].contains('build') || pom.properties['silverpeas.version'].contains('SNAPSHOT')) {
-    error "The version of Silverpeas must be a stable version for this project to be released. Current version is ${pom.properties['silverpeas.version']}"
-  }
-  sh """
-mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-mvn clean deploy -Dmaven.test.skip=true -Pdeployment -Prelease-sign-artifacts
-"""
-}
-
-def prepareNextSnapshotVersion(gitRepo, commit, version) {
-  echo "-> Prepare Next Snapshot version after ${version}"
-  def nextversion = getNextVersion(version)
-
-  echo "Prepare the next development iteration for ${nextversion}"
-  sh "git checkout master"
-  buildMavenProjectSnapshot(nextversion)
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh """
-git commit -am "${version} has been released from commit ${commit} (build version ${params.BUILD_VERSION}). Prepare for development iteration of next version ${nextversion}"
-git push https://${USER}:${PASSWORD}@${gitRepo} HEAD:master
-"""
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
   }
 }
 
-def releaseProject(gitRepo, commit, version) {
-  echo "-> Release project to version ${version}"
-  // we first change the Maven repo definition to use the repo dedicated to releases
-  // then we release the project and finally we tag it
-  sh """
-git checkout ${commit}
-git checkout -b release-${version}
-"""
-  buildMavenProjectRelease(version)
-  withCredentials([usernamePassword(credentialsId: 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59',
-      usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-    sh """
-git commit -am "Release of ${version}"
-git tag ${version}
-git push https://${USER}:${PASSWORD}@${gitRepo} --tags
-"""
-  }
-}
-
-@NonCPS
-def getNextVersion(version) {
+String getNextVersion(String version) {
   String[] parts = version.split('\\.')
   "${parts[0]}.${(parts[1] as Integer) + 1}"
+}
+
+String isStableVersion(String version) {
+  Matcher matcher = version =~ '^(\\d+.\\d+(.\\d)*)$'
+  return matcher.matches()
 }
