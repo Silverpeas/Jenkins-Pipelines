@@ -443,6 +443,21 @@ pipeline {
         sh 'rm -rf target'
       }
       archiveArtifacts artifacts: artifact, fingerprint: true
+      script {
+        if (branch == 'master') {
+          emailext(
+              subject: "Silverpeas ${buildToRelease.release} has been released!",
+              body: """
+                Enjoy this new version of Silverpeas, nevertheless don't forget to update in Jenkins
+                the following environment variables in order the usual jobs in Jenkins continues to 
+                work properly:
+                STABLE_BRANCH to '${buildToRelease.release}.x'
+                IMAGE_FOR_STABLE to '${buildToRelease}'
+                """,
+              to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+          )
+        }
+      }
     }
     always {
       step([$class                  : 'Mailer',

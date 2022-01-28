@@ -5,6 +5,10 @@ import java.util.regex.Matcher
  * the documentation of each project on which Silverpeas is made up. Those documentations are
  * published only at release of each latest stable version of Silverpeas.
  *
+ * This pipeline expects the following environment variable to be set:
+ * STABLE_BRANCH     the SCM branch in which the current stable version of the project is currently
+ *                   maintained
+ *
  * This pipeline is based upon the existence of a Jenkins job named
  * 'Silverpeas_Project_Definition_AutoDeploy' that has produced a build version of the Silverpeas
  * Project POM used as POM parent for all Silverpeas projects in development. It will fetch from it
@@ -32,7 +36,7 @@ pipeline {
   parameters {
     string (
         defaultValue: '',
-        description: 'Build version of Silvereas with which the web site info has to be updated. By default, an empty value meaning no update',
+        description: 'Version of Silvereas with which the web site info has to be updated. By default, an empty value means no update',
         name: 'SILVERPEAS_VERSION'
     )
   }
@@ -41,6 +45,7 @@ pipeline {
     nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    branch = getBranch()
     parentVersion = ''
     currentWildflyVersion = ''
     nextWildflyVersion = ''
@@ -48,26 +53,29 @@ pipeline {
   }
 
   stages {
-    stage('Prepare the job') {
+    stage('Check Silverpeas version') {
+      when {
+        not {
+          expression {
+            params.SILVERPEAS_VERSION == '' ||
+                (params.SILVERPEAS_VERSION.contains('-build') && branch == 'master') ||
+                (isStableVersion() && (branch == 'master' || branch == env.STABLE_BRANCH))
+          }
+        }
+      }
+      steps {
+        error "Community web site cannot be generated for such version: ${params.SILVERPEAS_VERSION}"
+      }
+    }
+    stage('Checkout') {
       steps {
         git([url: gitRepo, credentialsId: gitCredential])
-        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
         script {
-          def parentBuild = readYaml file: 'build.yaml'
-          def isReleased = sh returnStatus: true, script: "curl --output pom-project.xml --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
-          if (isReleased == '0') {
-            parentVersion = parentBuild.release
-            def pomProject = readMavenPom file: 'pom-project.xml'
-            currentWildflyVersion = pomProject.properties['wildfly.version'].replace('.Final', '')
-            sh 'rm -f pom-project.xml'
-          } else {
-            parentVersion = parentBuild.version
-            currentWildflyVersion = ''
-          }
-          nextWildflyVersion = parentBuild.wildfly.replace('.Final', '')
           pom = readMavenPom()
+          parentVersion = ''
+          currentWildflyVersion = ''
+          nextWildflyVersion = ''
         }
-        sh 'rm -f build.yaml'
       }
     }
     stage('Check POM parent version') {
@@ -76,6 +84,41 @@ pipeline {
       }
       steps {
         error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+      }
+    }
+    stage('Prepare for a new build version of Silverpeas') {
+      when {
+        expression {
+          params.SILVERPEAS_VERSION.contains('-build') && branch == 'master'
+        }
+      }
+      steps {
+        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+        script {
+          def parentBuild = readYaml file: 'build.yaml'
+          String isReleased = sh returnStatus: true,
+              script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
+          parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
+          nextWildflyVersion = parentBuild.wildfly.replace('.Final', '')
+          currentWildflyVersion = ''
+        }
+        sh 'rm -f build.yaml'
+      }
+    }
+    stage('Prepare for a new stable version of Silverpeas') {
+      when {
+        expression { isStableVersion() }
+      }
+      steps {
+        copyArtifacts projectName: "Silverpeas_Release", flatten: true,
+            selector: specific(params.SILVERPEAS_VERSION)
+        script {
+          def report = readYaml file: 'release.yaml'
+          parentVersion = report.parent
+          nextWildflyVersion = ''
+          currentWildflyVersion = report.wildfly
+        }
+        sh 'rm -f release.yaml'
       }
     }
     stage('Update POM parent version') {
@@ -94,7 +137,7 @@ pipeline {
     stage('Update current version of Wildfly') {
       when {
         expression {
-          currentWildflyVersion != '' && currentWildflyVersion != pom.properties['current_wildfly_version']
+          currentWildflyVersion && currentWildflyVersion != pom.properties['current_wildfly_version']
         }
       }
       steps {
@@ -108,7 +151,7 @@ pipeline {
     stage('Update next version of Wildfly') {
       when {
         expression {
-          nextWildflyVersion != '' && nextWildflyVersion != pom.properties['next_wildfly_version']
+          nextWildflyVersion && nextWildflyVersion != pom.properties['next_wildfly_version']
         }
       }
       steps {
@@ -119,11 +162,10 @@ pipeline {
           """
       }
     }
-    stage('Update build version of Silvereas') {
+    stage('Update build version of Silverpeas') {
       when {
         expression {
-          params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' &&
-              params.SILVERPEAS_VERSION.contains('-build') &&
+          params.SILVERPEAS_VERSION && params.SILVERPEAS_VERSION.contains('-build') &&
               params.SILVERPEAS_VERSION != pom.properties['installer_build_version']
         }
       }
@@ -137,8 +179,8 @@ pipeline {
     stage('Update stable version of Silverpeas') {
       when {
         expression {
-          params.SILVERPEAS_VERSION != null && params.SILVERPEAS_VERSION != '' &&
-              isStableVersion() && params.SILVERPEAS_VERSION != pom.properties['installer_stable_version']
+          params.SILVERPEAS_VERSION && isStableVersion() &&
+              params.SILVERPEAS_VERSION != pom.properties['installer_stable_version']
         }
       }
       steps {
@@ -171,7 +213,9 @@ pipeline {
   post {
     success {
       script {
-        currentBuild.displayName = params.SILVERPEAS_VERSION
+        if (params.SILVERPEAS_VERSION) {
+          currentBuild.displayName = params.SILVERPEAS_VERSION
+        }
       }
     }
     always {
@@ -186,4 +230,9 @@ pipeline {
 boolean isStableVersion() {
   Matcher m = params.SILVERPEAS_VERSION =~ '^\\d+.\\d+(.\\d+)?$'
   return m.matches()
+}
+
+String getBranch() {
+  Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
+  matcher ? "${matcher[0][1]}.x" : 'master'
 }

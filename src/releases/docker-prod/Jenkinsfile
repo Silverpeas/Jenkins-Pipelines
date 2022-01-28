@@ -140,12 +140,16 @@ pipeline {
       script {
         currentBuild.displayName = params.SILVERPEAS_VERSION
         emailext(
-            subject: "Production-ready Docker image built",
+            subject: "Production-ready Docker image of Silverpeas ${params.SILVERPEAS_VERSION} is ready!",
             body: """
-The production-ready Docker image template of Silverpeas was built for the version ${params.SILVERPEAS_VERSION}.
-The official DockerHub library was updated with it.
-You can then create a PR in https://github.com/docker-library/official-images to integrate the new image into the DockerHub Official Repository.
-""",
+              The production-ready Docker image of Silverpeas ${params.SILVERPEAS_VERSION} has been prepared to
+              be published among the official supported applications in the Docker Hub.
+              The official Docker Hub library has then also been updated with the commit and tag of this updated 
+              Docker image.
+              
+              So, please, don't forget to create a PR in https://github.com/docker-library/official-images for 
+              the Docker image of our new version of Silverpeas to be taken in charge by the Docker team.
+              """,
             to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
         )
       }
