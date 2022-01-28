@@ -57,6 +57,7 @@ pipeline {
           commit = lastBuild.commit
           nextVersion = getNextVersion(version)
         }
+        sh 'rm -f build.yaml'
       }
     }
     stage('Checkout the build version') {

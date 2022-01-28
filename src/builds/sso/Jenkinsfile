@@ -9,6 +9,9 @@
  * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
  *                             which this project depend must be named as
  *                             'Silverpeas_Master_AutoDeploy'
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
  */
 pipeline {
 

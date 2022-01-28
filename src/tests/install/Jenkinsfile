@@ -1,161 +1,197 @@
 import java.util.regex.Matcher
 
-node {
-  catchError {
-    String silverpeasHome
-    def wildflyHome
-    def dbConf
-    def fileRepo = 'https://www.silverpeas.org/files'
-    def mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
-    def gitRepo = 'https://github.com/mmoqui/Silverpeas-installation-tests.git'
-    docker.image("silverpeas/silverbuild").inside('-v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml -v $HOME/.gitconfig:/home/silverbuild/.gitconfig -v $HOME/.ssh:/home/silverbuild/.ssh -v $HOME/.gnupg:/home/silverbuild/.gnupg') {
-      stage('Preparation') {
-        sh "rm -rf * ~/.gradle"
+/**
+ * Pipeline to test the process of a new installation of the last build version of Silverpeas.
+ *
+ * Because this pipeline is based upon some convention rules, some expectations have to be
+ * fulfilled:
+ * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
+ *                             which this project depend must be named as
+ *                             'Silverpeas_Master_AutoDeploy'
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
 
-        // figure out the last build version of Silverpeas
-        copyArtifacts projectName: 'Silverpeas_Master_AutoDeploy', flatten: true
-        def lastBuild = readYaml file: 'build.yaml'
-        def buildVersion = lastBuild.version
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+    }
+  }
 
-        // figure out the wildfly and silverpeas distributions to use
-        def parentVersion = lastBuild.parent
-        sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
-        def pom = readMavenPom()
-        def wildfly = "wildfly-${pom.properties['wildfly.version']}.zip"
-        def silverpeas = silverpeasDistribMatching(buildVersion, wildfly)
-        silverpeasHome = silverpeas.substring(0, silverpeas.length() - 4)
-        wildflyHome = wildfly.substring(0, wildfly.length() - 4)
+  environment {
+    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    gitRepo = 'https://github.com/mmoqui/Silverpeas-installation-tests'
+    fileRepo = 'https://www.silverpeas.org/files'
+    silverpeasBuildJobName = 'Silverpeas_Master_AutoDeploy'
+    buildVersion = ''
+    silverpeas = ''
+    wildfly = ''
+    dbConf = null
+  }
 
-        // fetch resources required by the test
-        git poll: false, url: "${gitRepo}"
-        dbConf = readYaml file: 'conf/database.yaml'
-        sh """
-curl -fsSL -o ${silverpeas} ${fileRepo}/${silverpeas}
-unzip ${silverpeas}
-curl -fsSL -o ${wildfly} ${fileRepo}/${wildfly}
-unzip ${wildfly}
-cp conf/*.xml ${silverpeasHome}/configuration/silverpeas/
-cp lib/ojdbc7.jar ${silverpeasHome}/bin/lib/
-"""
+  stages {
+    stage('Fetch the last build version of Silverpeas') {
+      steps {
+        sh 'rm -rf * ~/.gradle'
+        sh 'mkdir logs/'
+        copyArtifacts projectName: silverpeasBuildJobName, flatten: true
+        script {
+          def lastBuild = readYaml file: 'build.yaml'
+          buildVersion = lastBuild.version
+
+          // figure out the wildfly and silverpeas distributions to use
+          String parentVersion = lastBuild.parent
+          sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
+          def pom = readMavenPom()
+          wildfly = "wildfly-${pom.properties['wildfly.version']}.zip"
+          silverpeas = silverpeasDistribMatching(buildVersion, wildfly)
+          sh 'rm -f pom.xml'
+        }
+        sh 'rm -f build.yaml'
       }
-      stage('Installation test with PostgreSQL database') {
-        withCredentials([usernamePassword(credentialsId: '77f54fe3-921f-4461-a70f-142122191933',
-            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-          def database = [
+    }
+    stage('Set up the test environment') {
+      steps {
+        git url: gitRepo, poll: false
+        script {
+          dbConf = readYaml file: 'conf/database.yaml'
+        }
+        sh """
+          curl -fsSL -o ${silverpeas} ${fileRepo}/${silverpeas}
+          unzip ${silverpeas}
+          mv ${silverpeas.substring(0, silverpeas.length() - 4)} silverpeas
+          curl -fsSL -o ${wildfly} ${fileRepo}/${wildfly}
+          unzip ${wildfly}
+          mv ${wildfly.substring(0, wildfly.length() - 4)} wildfly
+          cp conf/*.xml silverpeas/configuration/silverpeas/
+          cp lib/ojdbc7.jar silverpeas/bin/lib/
+          """
+      }
+    }
+    stage('Test installation against PostgreSQL') {
+      environment {
+        AUTH = credentials('77f54fe3-921f-4461-a70f-142122191933')
+      }
+      steps {
+        script {
+          def db = [
               name    : dbConf.postgresql.inst,
               type    : 'POSTGRESQL',
               host    : dbConf.postgresql.host,
               url     : dbConf.postgresql.url,
-              driver  : dbConf.postgresql.driver,
-              user    : USER,
-              password: PASSWORD,
+              driver  : dbConf.postgresql.driver
           ]
           try {
-            generateConfigFile(silverpeasHome, database)
-            create(database)
-            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+            generateConfigFileFor(db)
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
+            runTest()
           } finally {
-            renameWith(silverpeasHome, 'postgresql')
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-postgresql.log", fingerprint: true,
-                allowEmptyArchive: true
-            delete(database)
+            postfixLogFile('postgresql')
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
           }
         }
       }
-      stage('Installation test with MS-SQLServer database') {
-        withCredentials([usernamePassword(credentialsId: 'a063da26-fbad-4576-9825-ff5e5b338d9e',
-            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-          def database = [
+    }
+    stage('Test installation against MS-SQLServer') {
+      environment {
+        AUTH = credentials('a063da26-fbad-4576-9825-ff5e5b338d9e')
+      }
+      steps {
+        script {
+          def db = [
               name    : dbConf.mssql.inst,
               type    : 'MSSQL',
               host    : dbConf.mssql.host,
               url     : dbConf.mssql.url,
-              driver  : dbConf.mssql.driver,
-              user    : USER,
-              password: PASSWORD,
+              driver  : dbConf.mssql.driver
           ]
           try {
-            generateConfigFile(silverpeasHome, database)
-            create(database)
-            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+            generateConfigFileFor(db)
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
+            runTest()
           } finally {
-            renameWith(silverpeasHome, 'mssql')
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-mssql.log", fingerprint: true,
-                allowEmptyArchive: true
-            delete(database)
+            postfixLogFile('mssql')
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
           }
         }
       }
-      stage('Installation test with Oracle database') {
-        withCredentials([usernamePassword(credentialsId: 'c8c17c16-0843-4009-aa5a-64dbbfd4a565',
-            usernameVariable: 'USER', passwordVariable: 'PASSWORD')]) {
-          def database = [
+    }
+    stage('Test installation against Oracle') {
+      environment {
+        AUTH = credentials('c8c17c16-0843-4009-aa5a-64dbbfd4a565')
+      }
+      steps {
+        script {
+          def db = [
               name    : dbConf.oracle.inst,
               type    : 'ORACLE',
               host    : dbConf.oracle.host,
               url     : dbConf.oracle.url,
-              driver  : dbConf.oracle.driver,
-              user    : USER,
-              password: PASSWORD,
+              driver  : dbConf.oracle.driver
           ]
           try {
-            generateConfigFile(silverpeasHome, database)
-            create(database)
-            runTest silverpeasHome: silverpeasHome, wildflyHome: wildflyHome
+            generateConfigFileFor(db)
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
+            runTest()
           } finally {
-            renameWith(silverpeasHome, 'oracle')
-            archiveArtifacts artifacts: "${silverpeasHome}/log/build-oracle.log", fingerprint: true,
-                allowEmptyArchive: true
-            delete(database)
+            postfixLogFile('oracle')
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
           }
         }
       }
     }
   }
-  step([$class                  : 'Mailer',
-        notifyEveryUnstableBuild: true,
-        recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-        sendToIndividuals       : true])
-}
-
-def runTest(context) {
-  echo "-> Run installation test"
-  sh """
-SILVERPEAS_HOME="`pwd`/${context.silverpeasHome}" JBOSS_HOME="`pwd`/${context.wildflyHome}" ${context.silverpeasHome}/bin/silverpeas clean install
-"""
-}
-
-def create(db) {
-  echo "-> Create database ${db.name}"
-  sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U ${db.user} -P ${db.password}"
-}
-
-def delete(db) {
-  echo "-> Drop database ${db.name}"
-  sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U ${db.user} -P ${db.password}"
-}
-
-def generateConfigFile(silverpeasHome, db) {
-  withCredentials([usernamePassword(credentialsId: 'c58d4674-64f5-47c0-8ab0-463140ff7314',
-      usernameVariable: 'DB_USER', passwordVariable: 'DB_PASSWORD')]) {
-    sh """
-rm -f ${silverpeasHome}/configuration/config.properties
-echo "DB_NAME=${db.name}" > ${silverpeasHome}/configuration/config.properties
-echo "DB_USER=$DB_USER" >> ${silverpeasHome}/configuration/config.properties
-echo "DB_PASSWORD=$DB_PASSWORD" >> ${silverpeasHome}/configuration/config.properties
-echo "DB_SERVERTYPE=${db.type}"  >> ${silverpeasHome}/configuration/config.properties
-echo "DB_SERVER=${db.host}" >> ${silverpeasHome}/configuration/config.properties
-"""
+  post {
+    always {
+      script {
+        currentBuild.displayName = buildVersion
+      }
+      archiveArtifacts artifacts: 'logs/*', fingerprint: true, allowEmptyArchive: true
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
   }
 }
 
-void renameWith(String silverpeasHome, String postfix) {
-  String buildLog = sh returnStdout: true, script: "ls ${silverpeasHome}/log | grep 'build-[0-9]\\+_[0-9]\\+.log'"
-  sh "mv ${silverpeasHome}/log/${buildLog.trim()} ${silverpeasHome}/log/build-${postfix}.log"
+void runTest() {
+  sh '''
+    SILVERPEAS_HOME="`pwd`/silverpeas" JBOSS_HOME="`pwd`/wildfly" silverpeas/bin/silverpeas clean install
+    '''
 }
 
-@NonCPS
-def silverpeasDistribMatching(version, wildfly) {
+void generateConfigFileFor(db) {
+  withCredentials([usernamePassword(credentialsId: 'c58d4674-64f5-47c0-8ab0-463140ff7314',
+      usernameVariable: 'DB_USR', passwordVariable: 'DB_PSW')]) {
+    sh """
+      rm -f silverpeas/configuration/config.properties
+      echo "DB_NAME=${db.name}" > silverpeas/configuration/config.properties
+      echo "DB_SERVERTYPE=${db.type}"  >> silverpeas/configuration/config.properties
+      echo "DB_SERVER=${db.host}" >> silverpeas/configuration/config.properties
+      """
+    sh '''
+      echo "DB_USER=$DB_USR" >> silverpeas/configuration/config.properties
+      echo "DB_PASSWORD=$DB_PSW" >> silverpeas/configuration/config.properties
+      '''
+  }
+}
+
+void postfixLogFile(String postfix) {
+  String buildLog = sh returnStdout: true, script: "ls silverpeas/log | grep 'build-[0-9]\\+_[0-9]\\+.log'"
+  sh "mv silverpeas/log/${buildLog.trim()} logs/build-${postfix}.log"
+}
+
+String silverpeasDistribMatching(version, wildfly) {
   Matcher m = wildfly =~ /^wildfly-(\d+)\..+$/
   if (!m.matches()) {
     error "No Silverpeas distribution matching the Wildfly distribution ${wildfly}"

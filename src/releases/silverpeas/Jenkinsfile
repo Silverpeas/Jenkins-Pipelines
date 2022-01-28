@@ -459,7 +459,7 @@ pipeline {
 void withGit( closure) {
   withCredentials([usernamePassword(credentialsId: gitCredential,
       usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
-    sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
+    sh 'git config --local credential.helper "!f() { echo username=\\$GIT_AUTH_USR; echo password=\\$GIT_AUTH_PSW; }; f"'
     closure.call()
   }
 }
