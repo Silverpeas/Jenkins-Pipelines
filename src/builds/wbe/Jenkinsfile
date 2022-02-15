@@ -9,6 +9,9 @@
  * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
  *                             which this project depend must be named as
  *                             'Silverpeas_Master_AutoDeploy'
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
  */
 pipeline {
 
@@ -53,7 +56,7 @@ pipeline {
     }
     stage('Checkout the project') {
       steps {
-        git([url: gitRepo, credentialsId: gitCredential])
+        git([url: gitRepo, branch: 'main', credentialsId: gitCredential])
         script {
           pom = readMavenPom()
           release = pom.properties['next.release']
@@ -93,7 +96,7 @@ pipeline {
           """
         sh '''
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
-          git push origin HEAD:master
+          git push origin HEAD:main
           '''
       }
     }
@@ -114,7 +117,7 @@ pipeline {
           """
         sh '''
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
-          git push origin HEAD:master
+          git push origin HEAD:main
           '''
       }
     }
@@ -143,7 +146,7 @@ pipeline {
   post {
     success {
       script {
-        currentBuild.displayName = version
+        currentBuild.displayName = buildVersion
       }
       archiveArtifacts artifacts: artifact, fingerprint: true
     }
@@ -155,4 +158,3 @@ pipeline {
     }
   }
 }
-

@@ -61,7 +61,7 @@ pipeline {
     }
     stage('Checkout the build version') {
       steps {
-        git url: gitRepo, credentialsId: gitCredential
+        git url: gitRepo, branch: 'main', credentialsId: gitCredential
         sh """
           git checkout ${commit}
           git checkout -b release-${version}
@@ -112,7 +112,7 @@ pipeline {
       }
       steps {
         sh """
-          git checkout master
+          git checkout main
           sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
           mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
           mvn clean install -Dmaven.test.skip=true
@@ -121,7 +121,7 @@ Prepare for development iteration of next version ${nextVersion}"
           """
         sh '''
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
-          git push origin HEAD:master
+          git push origin HEAD:main
           '''
       }
     }
