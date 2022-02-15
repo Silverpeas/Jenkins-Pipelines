@@ -122,6 +122,7 @@ pipeline {
       steps {
         sh """
           /opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}
           mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
           /opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
           """
@@ -131,7 +132,7 @@ pipeline {
       steps {
         script {
           String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-          writeYaml file: artifact, data: ['version': version,
+          writeYaml file: artifact, data: ['version': buildVersion,
                                            'parent' : parentVersion,
                                            'release': release,
                                            'commit' : commit.trim()]
