@@ -64,7 +64,7 @@ pipeline {
           git checkout -b release-${version}
           """
         script {
-          def pom = readMavenPom()
+          pom = readMavenPom()
         }
       }
     }

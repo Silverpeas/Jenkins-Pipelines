@@ -37,7 +37,7 @@ pipeline {
         git([url: gitRepo, credentialsId: gitCredential])
         script {
           def pom = readMavenPom()
-          jcaVersion = pom.properties['silverpeas-jca.buildVersion']
+          jcaVersion = pom.properties['silverpeas-jca.version']
           release = pom.properties['next.release']
           buildVersion = "${release}-build${buildNumber}"
         }
