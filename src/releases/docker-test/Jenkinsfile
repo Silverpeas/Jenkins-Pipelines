@@ -39,7 +39,7 @@ pipeline {
     branch = getBranch()
     dockerImage = null
     modified = '0'
-    buildNb = '' // 0 means the build number has been changed, others numbers are the build number
+    buildNb = '0' // 0 means new version of Silverpeas, others numbers are the build number
   }
 
   stages {
@@ -97,8 +97,9 @@ pipeline {
       }
       steps {
         script {
+          int buildCount = (buildNb as int) + 1
           String status = sh script: """
-            sed -i -e "s/build=.\\+/build=${buildNb as int + 1}/g" Dockerfile
+            sed -i -e "s/build=.\\+/build=${buildCount}/g" Dockerfile
             git diff --quiet
             """, returnStatus: true
           modified = status == '0' ? modified : status

@@ -90,7 +90,7 @@ pipeline {
     stage('Prepare the release') {
       steps {
         script {
-          sh 'rm -rf target'
+          sh 'rm -rf target && mkdir target'
 
           String type = getBranchType()
           copyArtifacts projectName: "Silverpeas_${type}_AutoDeploy", flatten: true,
@@ -142,7 +142,7 @@ pipeline {
           sh "curl -fsSL -o pom.xml ${mavenRepo}/org/silverpeas/silverpeas-project/${parentVersion}/silverpeas-project-${parentVersion}.pom"
           def pom = readMavenPom()
           wildflyVersion = pom.properties['wildfly.version']
-          sh 'rf -f pom.xml'
+          sh 'rm -f pom.xml'
         }
       }
     }
@@ -191,7 +191,7 @@ pipeline {
 
     stage('Prepare next version of Silverpeas Core') {
       steps {
-        dir(project.core) {
+        dir(projects.core) {
           prepareNextVersion project: projects.core,
               commit: buildToRelease.commits[projects.core],
               version: buildToRelease.release,
@@ -406,10 +406,12 @@ pipeline {
     }
 
     stage('Publish Silverpeas Documentation') {
-      echo 'Trigger the documentation generation and publishing job'
-      build job: 'Silverpeas_Documentation_Publishing', parameters: [
-          string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release)
-      ], quietPeriod: 20, wait: false
+      steps {
+        echo 'Trigger the documentation generation and publishing job'
+        build job: 'Silverpeas_Documentation_Publishing', parameters: [
+            string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release)
+        ], quietPeriod: 20, wait: false
+      }
     }
 
     stage('Create YAML release report') {
@@ -427,8 +429,7 @@ pipeline {
   post {
     success {
       script {
-        currentBuild.displayName = version
-        sh 'rm -rf target'
+        currentBuild.displayName = buildToRelease.release
       }
       archiveArtifacts artifacts: artifact, fingerprint: true
       script {
@@ -525,7 +526,7 @@ void prepareNextVersion(args) {
     createMinorBranch(args)
   }
 
-  sh "git checkout ${args.branch}"
+  sh "git checkout ${branch}"
   if (fileExists('pom.xml')) {
     buildSnapshotVersionOfMavenProject(args.nextVersion)
   } else {
@@ -535,7 +536,7 @@ void prepareNextVersion(args) {
     sh """
       git commit -am "${args.version} has been released from build ${params.BUILD_VERSION} (${args.commit}).\\
 Prepare for development iteration of next version ${args.nextVersion}"
-      git push origin:${args.branch}
+      git push origin ${branch}
       """
   }
 }
@@ -588,7 +589,7 @@ String getNextVersion(version) {
 String getBranchType() {
   String type
   switch (branch) {
-    case env.BRANCH_STABLE:
+    case env.STABLE_BRANCH:
       type = 'Stable'
       break
     case 'master':

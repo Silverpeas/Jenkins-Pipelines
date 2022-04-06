@@ -39,7 +39,7 @@ pipeline {
 
   parameters {
     string (
-        description: 'the version of Silverpeas for which an IzPack installer will be built',
+        description: 'the version of Silverpeas for which the documentation will be generated',
         name: 'SILVERPEAS_VERSION'
     )
   }

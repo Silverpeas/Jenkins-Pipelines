@@ -13,10 +13,8 @@ import java.util.regex.Matcher
  *                   maintained
  *
  * It requires the following parameters:
- * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose
- * WILDFLY_VERSION    (optional) the version of Wildfly atop of which Silverpeas will run. If not
- *                    set, then the value in the Dockerfile isn't updated and it is the wildfly
- *                    version as set in the Dockerfile that will be used.
+ * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose.
+ * WILDFLY_VERSION    the version of Wildfly atop of which Silverpeas will run.
  */
 
 String imageVersion = getDockerImageVersion()
@@ -42,7 +40,6 @@ pipeline {
         name: 'SILVERPEAS_VERSION'
     )
     string (
-        defaultValue: '',
         description: 'the version of Wildfly to use for running Silverpeas',
         name: 'WILDFLY_VERSION'
     )
@@ -118,8 +115,8 @@ pipeline {
         expression { (branch == env.STABLE_BRANCH || branch == 'master') && !isPatchVersion() }
       }
       steps {
-        String nextVersion = getNextVersion()
         script {
+          String nextVersion = getNextVersion()
           sh """
           git checkout -b ${params.SILVERPEAS_VERSION}.x
           mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}

@@ -101,6 +101,7 @@ pipeline {
           parentVersion = isReleased == '0' ? parentBuild.release : parentBuild.version
           nextWildflyVersion = parentBuild.wildfly.replace('.Final', '')
           currentWildflyVersion = ''
+          echo "Next Wildfly version: ${nextWildflyVersion}"
         }
         sh 'rm -f build.yaml'
       }
@@ -117,13 +118,15 @@ pipeline {
           parentVersion = report.parent
           nextWildflyVersion = ''
           currentWildflyVersion = report.wildfly
+          echo "Parent version: ${parentVersion}"
+          echo "Current Wildfly version: ${currentWildflyVersion}"
         }
         sh 'rm -f release.yaml'
       }
     }
     stage('Update POM parent version') {
       when {
-        expression { parentVersion && pom.parent.version != parentVersion }
+        expression { parentVersion && pom.parent.version < parentVersion }
       }
       steps {
         script {
@@ -142,7 +145,7 @@ pipeline {
       }
       steps {
         sh """
-          sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${currentWildflyVersion.split('.')[0]}/g" pom.xml
+          sed -i -e "s/<current_wildfly_release>[0-9]\\+/<current_wildfly_release>${currentWildflyVersion.split('\\.')[0]}/g" pom.xml
           sed -i -e "s/<current_wildfly_version>[0-9.]\\+/<current_wildfly_version>${currentWildflyVersion}/g" pom.xml
           git commit -am "Update current Wildfly version to ${currentWildflyVersion}"
           """
@@ -156,7 +159,7 @@ pipeline {
       }
       steps {
         sh """
-          sed -i -e "s/<next_wildfly_release>[0-9]\\+/<next_wildfly_release>${nextWildflyVersion.split('.')[0]}/g" pom.xml
+          sed -i -e "s/<next_wildfly_release>[0-9]\\+/<next_wildfly_release>${nextWildflyVersion.split('\\.')[0]}/g" pom.xml
           sed -i -e "s/<next_wildfly_version>[0-9.]\\+/<next_wildfly_version>${nextWildflyVersion}/g" pom.xml
           git commit -am "Update next Wildfly version to ${nextWildflyVersion}"
           """
