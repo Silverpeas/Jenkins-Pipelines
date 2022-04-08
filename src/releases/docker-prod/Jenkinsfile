@@ -10,6 +10,13 @@ import java.util.regex.Matcher
  * only for a major or a minor version. For later, a new branch in the SCM will be created in order
  * to pursuit the constructing of Docker images of patch versions of Silverpeas from this branch.
  *
+ * Once the generation of the Docker image recipe is done, a PR will be opened in
+ * https://github.com/docker-library/official-images.
+ *
+ * This script takes care of an update of the existing Docker image recipe for a given version of
+ * Silverpeas. In this case, the tag will be deleted in order to be recreated. (But the commit
+ * related to the previous build, from which the tag has been created, isn't reverted.)
+ *
  * It requires the following parameters:
  * SILVERPEAS_VERSION the version of Silverpeas to run for testing purpose
  * WILDFLY_VERSION    the version of Wildfly atop of which Silverpeas will run.
@@ -34,12 +41,16 @@ pipeline {
     gitRepoProject = 'https://github.com/Silverpeas/docker-silverpeas-prod'
     gitRepoDockerHub = 'https://github.com/Silverpeas/official-images'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    gitToken = 'decabf50-38b1-4408-a978-a906372d79a7'
     mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     project = 'docker-silverpeas-prod'
     dockerhub = 'official-images'
     branch = getBranch()
     versionExists = '0'
     silverpeasVersion = ''
+    doPR = 'true'
+    prResult = '0'
+    update = '-1'
   }
 
   stages {
@@ -61,16 +72,35 @@ pipeline {
                 returnStatus: true
             silverpeasVersion = sh script: 'grep -oP \'(?<=SILVERPEAS_VERSION=)[0-9.]+\' Dockerfile', returnStdout: true
             sh 'rm -f pom-silverpeas.xml'
+            update = sh script: "git rev-parse ${params.SILVERPEAS_VERSION} > /dev/null 2>&1",
+                returnStatus: true
           }
         }
       }
     }
-    stage('Check Silverpeas version is new one') {
+    stage('Check Silverpeas version is a new one') {
       when {
         expression { silverpeasVersion == params.SILVERPEAS_VERSION || versionExists != 0 }
       }
       steps {
         error "Either there is no change or Silverpeas ${params.SILVERPEAS_VERSION} doesn't exist"
+      }
+    }
+    stage('Clean up previous build for the same version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      when {
+        expression { update == 0 }
+      }
+      steps {
+        dir(project) {
+          echo "This is build replaces/fixes a previous one for ${params.SILVERPEAS_VERSION}."
+          sh script: """
+              git tag -d ${params.SILVERPEAS_VERSION}
+              git push origin :${params.SILVERPEAS_VERSION}
+              """, returnStatus: true
+        }
       }
     }
     stage('Update Dockerfile for new version') {
@@ -122,14 +152,52 @@ pipeline {
             '''
           sh script: 'git remote add docker https://github.com/docker-library/official-images.git',
               returnStatus: true
-          sh """
+          sh '''
             git pull docker master
             git push origin HEAD:master
-            git checkout -b silverpeas-${params.SILVERPEAS_VERSION}
-            cp "${env.WORKSPACE}/silverpeas" library/
-            git commit -am "Update Docker image for Silverpeas version ${params.SILVERPEAS_VERSION}"
-            git push origin silverpeas-${params.SILVERPEAS_VERSION}
-            """
+          '''
+          script {
+            int status = sh script: "git rev-parse silverpeas-${params.SILVERPEAS_VERSION} > /dev/null 2>&1",
+                returnStatus: true
+            if (status == 0) {
+              echo "The branch silverpeas-${params.SILVERPEAS_VERSION} already exists. So this is just an update"
+              sh """
+              git checkout silverpeas-${params.SILVERPEAS_VERSION}
+              cp "${env.WORKSPACE}/silverpeas" library/
+              git commit -a --amend --no-edit
+              git push origin silverpeas-${params.SILVERPEAS_VERSION} --force-with-lease
+              """
+              doPR = 'false'
+            } else {
+              sh """
+              git checkout -b silverpeas-${params.SILVERPEAS_VERSION}
+              cp "${env.WORKSPACE}/silverpeas" library/
+              git commit -am "Update Docker image for Silverpeas version ${params.SILVERPEAS_VERSION}"
+              git push origin silverpeas-${params.SILVERPEAS_VERSION}
+              """
+              doPR = 'true'
+            }
+          }
+        }
+      }
+    }
+    stage('Open pull request') {
+      when {
+        expression { doPR == 'true' }
+      }
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+        GIT_TOKEN = crendentials("${gitToken}")
+      }
+      steps {
+        script {
+          prResult = sh """
+            curl -X POST \
+            -u "${GIT_AUTH_USR}:${GIT_TOKEN}" \
+            -H 'Accept: application/vnd.github.v3+json' \
+            -d '{"title":"Update with Silverpeas ${params.SILVERPEAS_VERSION}","body":"Update silverpeas Docker library to take into account Silverpeas ${params.SILVERPEAS_VERSION}","head":"Silverpeas:silverpeas-${params.SILVERPEAS_VERSION}","base":"master"}' \
+            https://api.github.com/repos/docker-library/official-images/pulls
+            """, returnStdout: true
         }
       }
     }
@@ -138,6 +206,12 @@ pipeline {
     success {
       script {
         currentBuild.displayName = params.SILVERPEAS_VERSION
+        if (prResult != '0') {
+          sh 'mkdir -p build'
+          writeFile file: 'build/PR.txt', text: prResult
+          archiveArtifacts artifacts: 'build/PR.txt', fingerprint: true
+          sh 'rm -rf build'
+        }
         emailext(
             subject: "Production-ready Docker image of Silverpeas ${params.SILVERPEAS_VERSION} is ready!",
             body: """
@@ -146,8 +220,9 @@ pipeline {
   The official Docker Hub library has then also been updated with the commit and tag of this updated 
   Docker image.
   
-  So, please, don't forget to create a PR in https://github.com/docker-library/official-images for 
-  the Docker image of our new version of Silverpeas to be taken in charge by the Docker team.
+  A PR has been opened in https://github.com/docker-library/official-images for the Docker team to
+  take in charge the integration of our new Docker image of Silverpeas into the official Docker Hub.
+  Don't forget to follow the status of this integration in https://github.com/docker-library/official-images/pull.
   """,
             to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
         )
