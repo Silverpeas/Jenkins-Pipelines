@@ -85,7 +85,8 @@ pipeline {
               type    : 'POSTGRESQL',
               host    : dbConf.postgresql.host,
               url     : dbConf.postgresql.url,
-              driver  : dbConf.postgresql.driver
+              driver  : dbConf.postgresql.driver,
+              port    : 5433
           ]
           try {
             generateConfigFileFor(db)
@@ -104,7 +105,8 @@ pipeline {
               type    : 'MSSQL',
               host    : dbConf.mssql.host,
               url     : dbConf.mssql.url,
-              driver  : dbConf.mssql.driver
+              driver  : dbConf.mssql.driver,
+              port    : 1433
           ]
           try {
             generateConfigFileFor(db)
@@ -123,7 +125,8 @@ pipeline {
               type    : 'ORACLE',
               host    : dbConf.oracle.host,
               url     : dbConf.oracle.url,
-              driver  : dbConf.oracle.driver
+              driver  : dbConf.oracle.driver,
+              port    : 1521
           ]
           try {
             generateConfigFileFor(db)
@@ -163,6 +166,7 @@ void generateConfigFileFor(db) {
       echo "DB_NAME=${db.name}" > silverpeas/configuration/config.properties
       echo "DB_SERVERTYPE=${db.type}"  >> silverpeas/configuration/config.properties
       echo "DB_SERVER=${db.host}" >> silverpeas/configuration/config.properties
+      echo "DB_PORT_${db.type}=${db.port}" >> silverpeas/configuration/config.properties
       """
     sh '''
       echo "DB_USER=$DB_USR" >> silverpeas/configuration/config.properties
