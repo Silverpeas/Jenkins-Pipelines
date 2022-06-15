@@ -111,7 +111,7 @@ pipeline {
       }
       steps {
         script {
-          String buildNb = sh script: 'grep -oP \'(?<=build=)\\d+\' Dockerfile', returnStdout: true
+          String buildNb = sh script: 'grep -oP "(?<=build=)\\d+" Dockerfile', returnStdout: true
           String status = sh script: """
             sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
             sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
@@ -119,7 +119,7 @@ pipeline {
             """, returnStatus: true
           if (status == '1') {
             sh """
-              sed -i -e "s/build=.\\+/build=${buildNb as int + 1}/g" Dockerfile
+              sed -i -e "s/build=.\\+/build=${(buildNb as int) + 1}/g" Dockerfile
               git commit -am "Upgrade for Wildfly ${params.WILDFLY_VERSION} and Java ${params.JAVA_VERSION}"
               git push origin HEAD:master
               """
