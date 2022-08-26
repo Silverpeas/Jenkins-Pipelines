@@ -137,7 +137,7 @@ pipeline {
               branch: branch,
               version: buildVersion,
               parentVersion: parentVersion
-          runSonarAnalysis project: projects.core, branch: branch
+          runSonarAnalysis project: projects.core + '2', branch: branch
         }
       }
     }
