@@ -356,10 +356,10 @@ void buildMavenProject(args) {
 }
 
 void runSonarAnalysis(args) {
-// run sonarqube analysis only for the master branch and only tests aren't skipped
+// run sonarqube analysis only for the master or stable branch and only tests aren't skipped
 // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
 // the Silverpeas code repository can be used
-  if (args.branch == 'master' && !params.SKIP_QUALITY) {
+  if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH) && !params.SKIP_QUALITY) {
     withSonarQubeEnv {
       sh """
     mvn $SONAR_MAVEN_GOAL \\
