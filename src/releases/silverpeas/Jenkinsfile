@@ -38,8 +38,16 @@ import java.util.regex.Matcher
  * the builds and to containerize them from the host OS.
  */
 
-String imageVersion = getDockerImageVersion()
+// versions of the Docker image to use with the different SCM branch names of the projects
+def imageVersions = [
+  '6.1.x' : '6.1',
+  '6.2.x' : '6.2.1',
+  'master': 'latest'
+]
 
+String imageVersion = getDockerImageVersion(imageVersions)
+
+// projects making Silverpeas to release
 def projects = [
                 core        : 'Silverpeas-Core',
                 components  : 'Silverpeas-Components',
@@ -612,7 +620,7 @@ boolean isPatchVersion() {
   return m.matches()
 }
 
-String getDockerImageVersion() {
-  Matcher matcher = params.BUILD_VERSION =~ '^(\\d+.\\d+)\\..*$'
-  matcher ? "${matcher[0][1]}" : 'latest'
+String getDockerImageVersion(imageVersions) {
+  Matcher matcher = params.BUILD_VERSION =~ '^(\\d+.\\d+\\..*)$'
+  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
 }

@@ -41,8 +41,15 @@ import java.util.regex.Matcher
  *               skipped. False by default.
  */
 
+// versions of the Docker image to use with the different SCM branch names of the projects
+def imageVersions = [
+  '6.1.x' : '6.1',
+  '6.2.x' : '6.2.1',
+  'master': 'latest'
+]
+
 String branch = fetchBranchFromJobName()
-String imageVersion = getDockerImageVersion(branch)
+String imageVersion = getDockerImageVersion(imageVersions, branch)
 
 // projects making Silverpeas to build
 def projects = [
@@ -71,7 +78,7 @@ pipeline {
   parameters {
     booleanParam(
         defaultValue: false,
-        description: 'Flag indicating if the excecution of the tests should be skipped',
+        description: 'Flag indicating if the execution of the tests should be skipped',
         name: 'SKIP_TEST'
     )
     booleanParam(
@@ -365,6 +372,7 @@ void runSonarAnalysis(args) {
     mvn $SONAR_MAVEN_GOAL \\
       -Dsonar.projectKey=Silverpeas_$args.project \\
       -Dsonar.organization=silverpeas \\
+      -Dsonar.branch.name=$args.branch \\
       -Dsonar.host.url=$SONAR_HOST_URL \\
       -Dsonar.login=$SONAR_AUTH_TOKEN
     """
@@ -394,7 +402,7 @@ String fetchBranchFromJobName() {
   return branch == 'stable' ? env.STABLE_BRANCH : branch
 }
 
-String getDockerImageVersion(branch) {
-  Matcher matcher = branch =~ '^(\\d+.\\d+)\\..*$'
-  matcher ? "${matcher[0][1]}" : 'latest'
+String getDockerImageVersion(imageVersions, branch) {
+  Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
+  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
 }
