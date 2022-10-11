@@ -81,7 +81,7 @@ pipeline {
         dir(projects.core) {
           git credentialsId: gitCredential, url: (gitBaseRepo + projects.core)
           sh """
-            git checkout ${args.version}
+            git checkout ${params.SILVERPEAS_VERSION}
             mvn site-deploy -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true
             """
         }
@@ -96,7 +96,7 @@ pipeline {
         dir(projects.components) {
           git credentialsId: gitCredential, url: (gitBaseRepo + projects.components)
           sh """
-            git checkout ${args.version}
+            git checkout ${params.SILVERPEAS_VERSION}
             mvn site-deploy -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true
             """
         }

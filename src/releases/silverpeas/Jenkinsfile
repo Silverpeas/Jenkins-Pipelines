@@ -84,7 +84,7 @@ pipeline {
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     branch = getBranch()
-    isPatchVersion = branch.endsWith('.x')
+    isPatchVersion = ''
     wildflyVersion = ''
     jackrabbitVersion = ''
     nextVersion = ''
@@ -100,6 +100,7 @@ pipeline {
         script {
           sh 'rm -rf target && mkdir target'
 
+          isPatchVersion = branch.endsWith('.x')
           String type = getBranchType()
           copyArtifacts projectName: "Silverpeas_${type}_AutoDeploy", flatten: true,
               selector: specific(params.BUILD_VERSION)
@@ -161,6 +162,7 @@ pipeline {
           Release processing parameters:
           Version to release          ${buildToRelease.release}
           From build version          ${params.BUILD_VERSION}
+          Patch version               ${isPatchVersion}
           Wildfly version             ${wildflyVersion}
           POM parent version          ${buildToRelease.parent}
           Should release POM parent?  ${buildToRelease.releaseParent}
@@ -567,6 +569,7 @@ void createMinorBranch(args) {
 
 void buildSnapshotVersionOfMavenProject(version) {
   sh """
+    sed -i -e "s/<core.version>[0-9a-zA-Z.-]\\+/<core.version>${version}-SNAPSHOT/g" pom.xml
     sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${version}-SNAPSHOT/g" pom.xml
     sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${version}/g" pom.xml
     sed -i -e "s/<tag>[a-zA-Z0-9.\\-]\\+/<tag>HEAD/g" pom.xml
