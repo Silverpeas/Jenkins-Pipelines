@@ -116,10 +116,8 @@ pipeline {
       }
       steps {
         script {
-          String nextVersion = getNextVersion()
           sh """
           git checkout -b ${params.SILVERPEAS_VERSION}.x
-          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}
           git commit -am "Prepare branch ${params.SILVERPEAS_VERSION}.x for minor versions"
           git push origin ${params.SILVERPEAS_VERSION}.x
           """
@@ -140,18 +138,6 @@ pipeline {
             sendToIndividuals       : true])
     }
   }
-}
-
-String getNextVersion() {
-  Matcher m = params.SILVERPEAS_VERSION =~ /^([0-9.]+)-rc(\d+)/
-  String nextVersion
-  if (m.matches()) {
-    nextVersion = "${m.group(1)}-rc${(m.group(2) as Integer) + 1}"
-  } else {
-    String[] parts = version.split('\\.')
-    nextVersion = parts.length < 3 ? "${parts[0]}.${(parts[1] as Integer) + 1}" : "${parts[0]}.${parts[1]}.${(parts[2] as Integer) + 1}"
-  }
-  return nextVersion
 }
 
 String getBranch() {

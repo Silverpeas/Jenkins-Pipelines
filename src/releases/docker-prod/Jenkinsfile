@@ -187,7 +187,7 @@ pipeline {
       }
       environment {
         GIT_AUTH = credentials("${gitCredential}")
-        GIT_TOKEN = crendentials("${gitToken}")
+        GIT_TOKEN = credentials("${gitToken}")
       }
       steps {
         script {

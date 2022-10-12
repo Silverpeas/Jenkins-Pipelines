@@ -68,17 +68,15 @@ pipeline {
         expression { params.IMAGE_VERSION != 'latest' }
       }
       steps {
-        steps {
-          sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
-          sh """
+        sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
+        sh """
             git tag ${params.IMAGE_VERSION}
             git push origin --tags
             """
-          script {
-            def dockerImage = docker.build "${imageName}:${params.IMAGE_VERSION}"
-            docker.withRegistry('', registryCredential) {
-              dockerImage.push()
-            }
+        script {
+          def dockerImage = docker.build "${imageName}:${params.IMAGE_VERSION}"
+          docker.withRegistry('', registryCredential) {
+            dockerImage.push()
           }
         }
       }
@@ -102,7 +100,7 @@ pipeline {
           """
       }
     }
-    stage('Udpate current latest version') {
+    stage('Update current latest version') {
       environment {
         GIT_AUTH = credentials("${gitCredential}")
       }
