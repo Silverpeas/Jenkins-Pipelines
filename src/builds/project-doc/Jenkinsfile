@@ -191,6 +191,7 @@ pipeline {
           sed -i -e "s/<installer_stable_version>[0-9a-zA-Z.-]\\+/<installer_stable_version>${params.SILVERPEAS_VERSION}/g" pom.xml
           sed -i -e "s/<installer_izpack_version>[0-9a-zA-Z.-]\\+/<installer_izpack_version>${params.SILVERPEAS_VERSION}/g" pom.xml
           mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${params.SILVERPEAS_VERSION}
+          sed -i -e "s/silverpeas-[0-9.]\\+-wildfly[0-9]\\+/silverpeas-${params.SILVERPEAS_VERSION}-wildfly${currentWildflyVersion.split('\\.')[0]}/g" src/site/resources/index.html
           git commit -am "Update the stable version of Silverpeas to ${params.SILVERPEAS_VERSION}"
           """
       }

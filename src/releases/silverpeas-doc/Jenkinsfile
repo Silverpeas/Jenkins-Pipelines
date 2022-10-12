@@ -115,7 +115,7 @@ pipeline {
   post {
     success {
       script {
-        currentBuild.displayName = version
+        currentBuild.displayName = params.SILVERPEAS_VERSION
       }
     }
     always {
