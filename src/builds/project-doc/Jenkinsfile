@@ -117,7 +117,7 @@ pipeline {
           def report = readYaml file: 'release.yaml'
           parentVersion = report.parent
           nextWildflyVersion = ''
-          currentWildflyVersion = report.wildfly
+          currentWildflyVersion = report.wildfly.replace('.Final', '')
           echo "Parent version: ${parentVersion}"
           echo "Current Wildfly version: ${currentWildflyVersion}"
         }
