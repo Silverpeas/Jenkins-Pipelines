@@ -28,7 +28,7 @@ pipeline {
   }
 
   environment {
-    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     gitRepo = 'https://github.com/mmoqui/Silverpeas-installation-tests'
     fileRepo = 'https://www.silverpeas.org/files'
     silverpeasBuildJobName = 'Silverpeas_Master_AutoDeploy'
