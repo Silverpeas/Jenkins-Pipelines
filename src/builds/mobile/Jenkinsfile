@@ -4,9 +4,10 @@ import java.util.regex.Matcher
  * Pipeline to construct a build version of Silverpeas Mobile. The execution of the pipeline depends
  * on the latest successful build version of Silverpeas as it fetches the build result report
  * from the successful Jenkins job in order to update correctly its dependencies on both Silverpeas
- * Core and Silverpeas Components. This pipeline releases the same build version that the latest
- * one of Silverpeas meaning that the version of Silverpeas Mobile follows the version of
- * Silverpeas on which it depends.
+ * Core and Silverpeas Components. As the version lifecycle of the project can differ from the
+ * Silverpeas one, this pipeline releases a version timestamped with the date of the build;
+ * meaning this build version can be as well as the same of the latest one of Silverpeas than it can
+ * be different.
  *
  * This pipeline expects the following environment variables to be set:
  * STABLE_BRANCH     the SCM branch in which the current stable version of the project is currently
@@ -53,7 +54,7 @@ pipeline {
   parameters {
     booleanParam (
         defaultValue: false,
-        description: 'Flag indicating if the excecution of the tests should be skipped',
+        description: 'Flag indicating if the execution of the tests should be skipped',
         name: 'SKIP_TEST'
     )
   }
@@ -66,6 +67,7 @@ pipeline {
     parentVersion = ''
     buildVersion = ''
     release = ''
+    silverpeasVersion = ''
     pom = null
     artifact = 'target/build.yaml'
   }
@@ -79,20 +81,23 @@ pipeline {
           copyArtifacts projectName: silverpeasJobName, flatten: true
           def silverpeasBuild = readYaml file: 'build.yaml'
           parentVersion = silverpeasBuild.parent
-          buildVersion = silverpeasBuild.version
-          release = silverpeasBuild.release
+          silverpeasVersion = silverpeasBuild.version
           sh 'rm -f build.yaml'
         }
         echo "Parent version is ${parentVersion}"
-        echo "Build Silverpeas Mobile ${buildVersion} upon Silverpeas ${buildVersion}"
+        echo "Silverpeas version is ${silverpeasVersion}"
       }
     }
-    stage('Checkout the project') {
+    stage('Prepare the project') {
       steps {
         git([url: gitRepo, branch: branch, credentialsId: gitCredential])
         script {
           pom = readMavenPom()
+          release = pom.properties['next.release']
+          buildNumber = (new Date()).format('yyMMdd')
+          buildVersion = "${release}-build${buildNumber}"
         }
+        echo "Build version will be ${buildVersion}"
       }
     }
     stage('Check POM parent version') {
@@ -129,7 +134,7 @@ pipeline {
       }
       when {
         expression {
-          pom.properties['silverpeas.version'] != buildVersion
+          pom.properties['silverpeas.version'] != silverpeasVersion
         }
       }
       steps {
@@ -137,8 +142,8 @@ pipeline {
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
           '''
         sh """
-          sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${buildVersion}/g" pom.xml
-          git commit -am "Update dependency on Silverpeas to version ${buildVersion}"
+          sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
+          git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
           git push origin HEAD:${branch}
           """
       }
@@ -166,6 +171,7 @@ pipeline {
           String commit = sh script: 'git rev-parse HEAD', returnStdout: true
           writeYaml file: artifact, data: ['version': buildVersion,
                                            'parent' : parentVersion,
+                                           'silverpeas': silverpeasVersion,
                                            'release': release,
                                            'commit' : commit.trim(),
                                            'tested' : !params.SKIP_TEST]
