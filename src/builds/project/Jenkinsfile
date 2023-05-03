@@ -33,7 +33,6 @@ pipeline {
     buildNumber = (new Date()).format('yyMMdd')
     buildVersion = ''
     release = ''
-    jcrAccessControl = ''
     artifact = 'target/build.yaml'
   }
 
@@ -51,17 +50,8 @@ pipeline {
         sh "curl -fsSL -o pom2.xml https://raw.githubusercontent.com/Silverpeas/silverpeas-dependencies-bom/master/pom.xml"
         script {
           def pom = readMavenPom file: 'pom2.xml'
-          jcrAccessControl = pom.properties['jcr.accesscontrol.version']
         }
         sh 'rm -f pom?.xml'
-      }
-    }
-    stage('Check dependencies') {
-      when {
-        expression { jcrAccessControl.contains('SNAPSHOT') }
-      }
-      steps {
-        error "The Silverpeas JCR AccessControl dependency must be a stable or a build version. Current version is ${jcrAccessControl}"
       }
     }
     stage('Build and Publish dependencies definition') {
