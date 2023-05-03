@@ -67,7 +67,7 @@ pipeline {
           version = lastBuild.release
           nextVersion = getNextVersion(lastBuild.release)
           sh 'rm -f build.yaml'
-          jcrAccessControl = fetchJCRAccessControlLibVersion()
+          jcrAccessControl = ''
         }
       }
     }

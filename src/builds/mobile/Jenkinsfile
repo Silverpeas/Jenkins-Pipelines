@@ -33,8 +33,21 @@ import java.util.regex.Matcher
  *               False by default.
  */
 
+// versions of the Docker image to use with the different SCM branch names of the projects
+def imageVersions = [
+  '6.1.x' : '6.1',
+  '6.2.x' : '6.2.1',
+  '6.3.x' : '6.3',
+  'master-jackrabbit' : 'latest',
+  'master': 'latest'
+]
+
+// SCM branches of Silverpeas for which CI is managed in a old way
+def versions_for_old_ci = ['6.1.x', '6.2.x']
+
 String branchType = getBranchTypeFromJobName()
-String imageVersion = branchType.toLowerCase() == 'master' ? 'latest' : env.IMAGE_FOR_STABLE
+String branch = getBranch(branchType)
+String imageVersion = getDockerImageVersion(imageVersions, branch)
 
 pipeline {
 
@@ -63,7 +76,6 @@ pipeline {
     nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
     gitRepo = 'https://github.com/Silverpeas/silverpeasmobile'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    branch = getBranch(branchType)
     parentVersion = ''
     buildVersion = ''
     release = ''
@@ -153,7 +165,7 @@ pipeline {
         script {
           String skipTest = params.SKIP_TEST ? '-Dmaven.test.skip=true' : ''
           sh "mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}"
-          if (branch != 'master') {
+          if (versions_for_old_ci.contains(branch)) {
             sh "mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage ${skipTest} -Djava.awt.headless=true -Dcontext=ci"
           } else {
             sh """
@@ -196,7 +208,7 @@ pipeline {
 }
 
 String getBranchTypeFromJobName() {
-  Matcher matcher = env.JOB_NAME =~ /.+_([a-zA-Z0-9.]+)_.+/
+  Matcher matcher = env.JOB_NAME =~ /.+_([\-a-zA-Z0-9.]+)_.+/
   String type = (matcher.matches() ? matcher[0][1] : '')
   if (type == '') {
     error 'The Jenkins job is misnamed! Expecting to find the branch type in it'
@@ -209,3 +221,7 @@ String getBranch(String branchType) {
   return typeInLowerCase == 'stable' ? env.STABLE_BRANCH : typeInLowerCase
 }
 
+String getDockerImageVersion(imageVersions, branch) {
+  Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
+  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
+}

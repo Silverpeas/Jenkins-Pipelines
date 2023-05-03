@@ -115,10 +115,12 @@ pipeline {
           buildToRelease.commits['silverpeasmobile'] = mobileToRelease.commit
           sh 'rm -f build.yaml'
 
-          sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Assembly/${branch}/pom.xml"
-          def pom = readMavenPom()
-          jackrabbitVersion = pom.properties['jackrabbit.version']
-          sh 'rm -f pom.xml'
+          if (branch != 'master') {
+            sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Assembly/${branch}/pom.xml"
+            def pom = readMavenPom()
+            jackrabbitVersion = pom.properties['jackrabbit.version']
+            sh 'rm -f pom.xml'
+          }
         }
       }
     }

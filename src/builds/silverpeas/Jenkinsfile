@@ -46,6 +46,7 @@ def imageVersions = [
   '6.1.x' : '6.1',
   '6.2.x' : '6.2.1',
   '6.3.x' : '6.3',
+  'master-jackrabbit' : 'latest',
   'master': 'latest'
 ]
 
@@ -328,7 +329,7 @@ void checkPOMParent(pom, args) {
 }
 
 void checkJackRabbitVersion(jackRabbitVersion) {
-  if (jackRabbitVersion.contains('SNAPSHOT')) {
+  if (jackRabbitVersion != null && jackRabbitVersion.contains('SNAPSHOT')) {
     error("The Jackrabbit JCA dependency must be a stable or a build version. Current version is ${jackRabbitVersion}")
   }
 }
@@ -396,7 +397,7 @@ void publishMavenProject(projectName) {
 }
 
 String fetchBranchFromJobName() {
-  Matcher matcher = env.JOB_NAME =~ /.+_([a-zA-Z0-9.]+)_.+/
+  Matcher matcher = env.JOB_NAME =~ /.+_([\-a-zA-Z0-9.]+)_.+/
   String branch = (matcher.matches() ? matcher[0][1] : '').toLowerCase()
   if (branch == '') {
     error 'The Jenkins job is misnamed! Expecting to find the branch name in it'
