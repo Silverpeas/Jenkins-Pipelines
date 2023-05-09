@@ -46,7 +46,7 @@ def imageVersions = [
   '6.1.x' : '6.1',
   '6.2.x' : '6.2.1',
   '6.3.x' : '6.3',
-  'master-jackrabbit' : 'latest',
+  'master-jackrabbit' : '6.4-JR',
   'master': 'latest'
 ]
 
