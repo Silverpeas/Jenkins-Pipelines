@@ -10,7 +10,7 @@ import java.util.regex.Matcher
  * In order to get the build version, the pipeline requires the Jenkins job aimed at constructing
  * such build version to be named 'Silverpeas_[PROJECT_TYPE]_AutoDeploy' with [PROJECT_TYPE] being
  * either 'Master' for the main major or minor version of Silverpeas in development, or 'Stable' for
- * the next path version in development of the last stable version of Silverpeas, or a branch name
+ * the next patch version in development of the last stable version of Silverpeas, or a branch name
  * for older stable branch in which patch versions are yet ongoing.
  *
  * Once the release is successfully done, the pipeline triggers extra jobs that must exist:
@@ -85,7 +85,7 @@ pipeline {
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
     branch = getBranch()
-    isPatchVersion = ''
+    isPatchVersion = isPatchVersion()
     wildflyVersion = ''
     jackrabbitVersion = ''
     nextVersion = ''
@@ -100,8 +100,6 @@ pipeline {
       steps {
         script {
           sh 'rm -rf target && mkdir target'
-
-          isPatchVersion = branch.endsWith('.x')
           String type = getBranchType()
           copyArtifacts projectName: "Silverpeas_${type}_AutoDeploy", flatten: true,
               selector: specific(params.BUILD_VERSION)
@@ -627,6 +625,7 @@ boolean isPatchVersion() {
 }
 
 String getDockerImageVersion(imageVersions) {
-  Matcher matcher = params.BUILD_VERSION =~ '^(\\d+.\\d+\\..*)$'
-  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
+  String currentBranch = getBranch()
+  Matcher matcher = currentBranch =~ '^(\\d+.\\d+\\..*)$'
+  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[currentBranch]
 }
