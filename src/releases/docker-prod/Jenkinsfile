@@ -191,11 +191,12 @@ pipeline {
       }
       steps {
         script {
-          prResult = sh """
+          prResult = sh script: """
             curl -X POST \
             -u "${GIT_AUTH_USR}:${GIT_TOKEN}" \
             -H 'Accept: application/vnd.github.v3+json' \
-            -d '{"title":"Update with Silverpeas ${params.SILVERPEAS_VERSION}","body":"Update silverpeas Docker library to take into account Silverpeas ${params.SILVERPEAS_VERSION}","head":"Silverpeas:silverpeas-${params.SILVERPEAS_VERSION}","base":"master"}' \
+            -d '{"title":"New Docker image for Silverpeas ${params.SILVERPEAS_VERSION}",
+"body":"Update 'silverpeas' Docker library to take into account Silverpeas ${params.SILVERPEAS_VERSION}","head":"Silverpeas:silverpeas-${params.SILVERPEAS_VERSION}","base":"master"}' \
             https://api.github.com/repos/docker-library/official-images/pulls
             """, returnStdout: true
         }
