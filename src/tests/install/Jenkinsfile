@@ -152,6 +152,33 @@ pipeline {
         }
       }
     }
+    stage('Test installation against H2') {
+      environment {
+        AUTH = credentials('a1257830-edbc-42f1-9abc-adc84097843c')
+      }
+      steps {
+        script {
+          def db = [
+                  name    : dbConf.h2.inst,
+                  type    : 'H2',
+                  host    : dbConf.h2.host,
+                  url     : dbConf.h2.url,
+                  driver  : dbConf.h2.driver,
+                  port    : 9092
+          ]
+          try {
+            sh "${env.WORKSPACE}/scripts/h2.sh '${env.WORKSPACE}' start"
+            generateConfigFileFor(db)
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a CREATE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
+            runTest()
+          } finally {
+            postfixLogFile('h2')
+            sh "${env.WORKSPACE}/scripts/setupDB.sh '${env.WORKSPACE}' -a DELETE -t ${db.type} -n ${db.name} -d ${db.driver} -u ${db.url} -U \\$AUTH_USR -P \\$AUTH_PSW"
+            sh "${env.WORKSPACE}/scripts/h2.sh '${env.WORKSPACE}' stop"
+          }
+        }
+      }
+    }
   }
   post {
     always {
