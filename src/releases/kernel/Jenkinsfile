@@ -1,0 +1,109 @@
+import java.util.regex.Matcher
+
+/**
+ * Pipeline to release a stable version of the Silverpeas Kernel library from the latest state of
+ * its sources.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image "silverpeas/silverbuild"
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
+          -v $HOME/.ssh:/home/silverbuild/.ssh 
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+    }
+  }
+
+  environment {
+    gitRepo = 'https://github.com/Silverpeas/Silverpeas-Kernel'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    version = ''
+    nextVersion = ''
+    commit = ''
+    artifact = 'target/release.yaml'
+  }
+
+  stages {
+    stage('Prepare the release') {
+      steps {
+        git url: gitRepo, credentialsId: gitCredential
+        script {
+          def pom = readMavenPom()
+          version = pom.properties['next.release']
+          nextVersion = getNextVersion(version)
+          commit = sh script: 'git rev-parse HEAD', returnStdout: true
+        }
+      }
+    }
+    stage('Release') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh """
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+          mvn clean deploy -Pdeployment -Prelease-sign-artifacts
+          git commit -am "Release of Silverpeas Kernel ${version}"
+          git tag ${version}
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin --tags
+          '''
+      }
+    }
+    stage('Prepare the development of the next version') {
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh """
+          sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
+          mvn clean install
+          git commit -am "Prepare for development iteration of next version ${nextVersion}"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          git push origin HEAD:main
+          '''
+      }
+    }
+    stage('Create YAML release report') {
+      steps {
+        script {
+          writeYaml file: artifact, data: ['release'     : version,
+                                           'commit'      : commit,
+                                           'next release': nextVersion]
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = version
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            sendToIndividuals       : true])
+    }
+  }
+}
+
+String getNextVersion(String version) {
+  String[] parts = version.split('\\.')
+  "${parts[0]}.${(parts[1] as Integer) + 1}" as String
+}

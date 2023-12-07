@@ -8,7 +8,7 @@ import java.util.regex.Matcher
  * such build version to be named 'Silverpeas_SSO_AutoDeploy'.
  *
  * This pipeline requires the following parameters:
- * BUILD_VERSION the build version of Silverpeas from which the release has to be done.
+ * BUILD_VERSION the build version of Silverpeas SSO from which the release has to be done.
  *
  * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
