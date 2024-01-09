@@ -47,7 +47,7 @@ pipeline {
   environment {
     gitBaseRepo = 'https://github.com/Silverpeas/'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
+    mavenRepo = 'https://nexus3.silverpeas.org/repository/silverpeas'
     releaseBranch = ''
   }
 

@@ -42,7 +42,7 @@ pipeline {
   }
 
   environment {
-    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
+    nexusRepo = 'https://nexus3.silverpeas.org/repository/releases'
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-Project-Web-Site'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     branch = getBranch()

@@ -25,7 +25,7 @@ pipeline {
   }
 
   environment {
-    nexusRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    nexusRepo = 'https://nexus3.silverpeas.org/repository/builds'
     gitRepoOfProject = 'https://github.com/Silverpeas/Silverpeas-Project'
     gitRepoOfDependencies = 'https://github.com/Silverpeas/silverpeas-dependencies-bom'
     gitRepoOfTestDependencies = 'https://github.com/Silverpeas/silverpeas-test-dependencies-bom'

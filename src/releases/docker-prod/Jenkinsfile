@@ -42,7 +42,7 @@ pipeline {
     gitRepoDockerHub = 'https://github.com/Silverpeas/official-images'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     gitToken = 'decabf50-38b1-4408-a978-a906372d79a7'
-    mavenRepo = 'https://www.silverpeas.org/nexus/content/repositories/silverpeas'
+    mavenRepo = 'https://nexus3.silverpeas.org/repository/silverpeas'
     project = 'docker-silverpeas-prod'
     dockerhub = 'official-images'
     branch = getBranch()

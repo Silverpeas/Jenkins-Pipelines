@@ -91,8 +91,8 @@ pipeline {
   }
 
   environment {
-    nexusReleaseRepo = 'https://www.silverpeas.org/nexus/content/repositories/releases'
-    nexusBuildRepo = 'https://www.silverpeas.org/nexus/content/repositories/builds'
+    nexusReleaseRepo = 'https://nexus3.silverpeas.org/repository/releases'
+    nexusBuildRepo = 'https://nexus3.silverpeas.org/repository/builds'
     gitBaseRepo = 'https://github.com/Silverpeas'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     buildNumber = (new Date()).format('yyMMdd')
