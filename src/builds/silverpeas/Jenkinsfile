@@ -377,7 +377,8 @@ void runSonarAnalysis(args) {
       -Dsonar.organization=silverpeas \\
       -Dsonar.branch.name=$args.branch \\
       -Dsonar.host.url=$SONAR_HOST_URL \\
-      -Dsonar.login=$SONAR_AUTH_TOKEN
+      -Dsonar.login=$SONAR_AUTH_TOKEN \\
+      -Dsonar.scanner.force-deprecated-java-version=true
     """
     }
     timeout(time: 30, unit: 'MINUTES') {
