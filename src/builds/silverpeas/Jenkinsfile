@@ -45,7 +45,7 @@ import java.util.regex.Matcher
 def imageVersions = [
   '6.1.x' : '6.1',
   '6.2.x' : '6.2.1',
-  '6.3.x' : '6.3.1',
+  '6.3.x' : '6.3.3',
   'master-jackrabbit' : '6.4-JR',
   'master': 'latest'
 ]
@@ -370,15 +370,16 @@ void runSonarAnalysis(args) {
 // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
 // the Silverpeas code repository can be used
   if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH) && !params.SKIP_QUALITY) {
+    String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
     withSonarQubeEnv {
       sh """
-    JAVA_HOME="$SONAR_JDK_HOME" mvn $SONAR_MAVEN_GOAL \\
+      JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
       -Dsonar.projectKey=Silverpeas_$args.project \\
       -Dsonar.organization=silverpeas \\
       -Dsonar.branch.name=$args.branch \\
       -Dsonar.host.url=$SONAR_HOST_URL \\
-      -Dsonar.login=$SONAR_AUTH_TOKEN
-    """
+      -Dsonar.token=$SONAR_AUTH_TOKEN
+      """
     }
     timeout(time: 30, unit: 'MINUTES') {
       // Just in case something goes wrong, pipeline will be killed after a timeout

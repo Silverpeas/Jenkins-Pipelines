@@ -37,7 +37,7 @@ import java.util.regex.Matcher
 def imageVersions = [
   '6.1.x' : '6.1',
   '6.2.x' : '6.2.1',
-  '6.3.x' : '6.3.1',
+  '6.3.x' : '6.3.3',
   'master-jackrabbit' : '6.4-JR',
   'master': 'latest'
 ]
