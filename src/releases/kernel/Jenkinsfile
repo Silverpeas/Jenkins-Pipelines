@@ -34,12 +34,40 @@ pipeline {
   stages {
     stage('Prepare the release') {
       steps {
-        git url: gitRepo, credentialsId: gitCredential
+        git([url: gitRepo, branch: 'main', credentialsId: gitCredential])
         script {
           def pom = readMavenPom()
           version = pom.properties['next.release']
           nextVersion = getNextVersion(version)
           commit = sh script: 'git rev-parse HEAD', returnStdout: true
+        }
+      }
+    }
+    stage('Build') {
+      steps {
+        sh """
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
+          mvn clean deploy -Pdeployment -Prelease-sign-artifacts
+          """
+        script {
+          String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
+          withSonarQubeEnv {
+            sh """
+            JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
+            -Dsonar.projectKey=Silverpeas_Silverpeas-Kernel \\
+            -Dsonar.organization=silverpeas \\
+            -Dsonar.branch.name=main \\
+            -Dsonar.host.url=$SONAR_HOST_URL \\
+            -Dsonar.token=$SONAR_AUTH_TOKEN
+            """
+          }
+          timeout(time: 30, unit: 'MINUTES') {
+            // Just in case something goes wrong, pipeline will be killed after a timeout
+            def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
+            if (qg.status != 'OK' && qg.status != 'WARNING') {
+              error "Pipeline aborted due to quality gate failure: ${qg.status}"
+            }
+          }
         }
       }
     }
@@ -49,8 +77,6 @@ pipeline {
       }
       steps {
         sh """
-          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}
-          mvn clean deploy -Pdeployment -Prelease-sign-artifacts
           git commit -am "Release of Silverpeas Kernel ${version}"
           git tag ${version}
           """
