@@ -43,11 +43,11 @@ import java.util.regex.Matcher
 
 // versions of the Docker image to use with the different SCM branch names of the projects
 def imageVersions = [
-  '6.1.x' : '6.1',
-  '6.2.x' : '6.2.1',
-  '6.3.x' : '6.3.3',
-  'master-jackrabbit' : '6.4-JR',
-  'master': 'latest'
+        '6.1.x'            : '6.1',
+        '6.2.x'            : '6.2.1',
+        '6.3.x'            : '6.3.3',
+        'master-jackrabbit': '6.4-JR',
+        'master'           : 'latest'
 ]
 
 String branch = fetchBranchFromJobName()
@@ -55,324 +55,364 @@ String imageVersion = getDockerImageVersion(imageVersions, branch)
 
 // projects making Silverpeas to build
 def projects = [
-              core        : 'Silverpeas-Core',
-              components  : 'Silverpeas-Components',
-              looks       : 'Silverpeas-Looks',
-              setup       : 'Silverpeas-Setup',
-              distribution: 'Silverpeas-Distribution',
-              assembly    : 'Silverpeas-Assembly']
+        core        : 'Silverpeas-Core',
+        components  : 'Silverpeas-Components',
+        looks       : 'Silverpeas-Looks',
+        setup       : 'Silverpeas-Setup',
+        distribution: 'Silverpeas-Distribution',
+        assembly    : 'Silverpeas-Assembly']
 
 pipeline {
 
-  agent {
-    docker {
-      image "silverpeas/silverbuild:${imageVersion}"
-      args '''
+    agent {
+        docker {
+            image "silverpeas/silverbuild:${imageVersion}"
+            args '''
           -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
           -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
           -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
           -v $HOME/.ssh:/home/silverbuild/.ssh 
           -v $HOME/.gnupg:/home/silverbuild/.gnupg
           '''
+        }
     }
-  }
 
-  parameters {
-    booleanParam(
-        defaultValue: false,
-        description: 'Flag indicating if the execution of the tests should be skipped',
-        name: 'SKIP_TEST'
-    )
-    booleanParam(
-        defaultValue: false,
-        description: 'Indicates whether the code quality analysis have to be skipped',
-        name: 'SKIP_QUALITY'
-    )
-  }
+    // parameters to speed up the build: by disabling the test execution and the code quality
+    // analysis. For build from which a release candidate version has to be built, this
+    // shouldn't be used.
+    parameters {
+        booleanParam(
+                defaultValue: false,
+                description: 'Flag indicating if the execution of the tests should be skipped',
+                name: 'SKIP_TEST'
+        )
+        booleanParam(
+                defaultValue: false,
+                description: 'Indicates whether the code quality analysis have to be skipped',
+                name: 'SKIP_QUALITY'
+        )
+    }
 
-  environment {
-    nexusReleaseRepo = 'https://nexus3.silverpeas.org/repository/releases'
-    nexusBuildRepo = 'https://nexus3.silverpeas.org/repository/builds'
-    gitBaseRepo = 'https://github.com/Silverpeas'
-    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    buildNumber = (new Date()).format('yyMMdd')
-    parentVersion = ''
-    buildVersion = ''
-    release = ''
-    wildflyVersion = ''
-    commits = null // the commit of each project once their build done
-    artifact = 'target/build.yaml'
-  }
+    environment {
+        nexusReleaseRepo = 'https://nexus3.silverpeas.org/repository/releases'
+        nexusBuildRepo = 'https://nexus3.silverpeas.org/repository/builds'
+        gitBaseRepo = 'https://github.com/Silverpeas'
+        gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+        buildNumber = (new Date()).format('yyMMdd')
+        parentVersion = ''
+        buildVersion = ''
+        previousBuildVersion = ''
+        release = ''
+        wildflyVersion = ''
+        commits = null // the commit of each project once their build done
+        artifact = 'target/build.yaml'
+        changes = null
+    }
 
-  stages {
-    stage('Prepare the job') {
-      steps {
-        sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${branch}/pom.xml"
-        script {
-          def pom = readMavenPom()
-          release = pom.properties['next.release']
-          buildVersion = "${release}-build${buildNumber}"
-          parentVersion = pom.parent.version
-          commits = [:]
-          sh 'rm -f pom.xml'
+    stages {
+        stage('Prepare the job') {
+            steps {
+                sh "curl -fsSL -o pom.xml https://raw.githubusercontent.com/Silverpeas/Silverpeas-Core/${branch}/pom.xml"
+                script {
+                    def pom = readMavenPom()
+                    release = pom.properties['next.release']
+                    buildVersion = "${release}-build${buildNumber}"
+                    parentVersion = pom.parent.version
+                    commits = [:]
+                    changes = [:]
+                    sh 'rm -f pom.xml'
+                }
+            }
         }
-      }
-    }
-    stage('Check POM parent version') {
-      when {
-        expression {
-          branch == 'master' && (parentVersion.contains('build') || parentVersion.contains('SNAPSHOT'))
+        stage('Check POM parent version') {
+            when {
+                expression {
+                    branch == 'master' && (parentVersion.contains('build') || parentVersion.contains('SNAPSHOT'))
+                }
+            }
+            steps {
+                copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
+                script {
+                    def parentBuild = readYaml file: 'build.yaml'
+                    String isReleased = sh returnStatus: true,
+                            script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusReleaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
+                    parentVersion = isReleased == "0" ? parentBuild.release : parentBuild.version
+                    wildflyVersion = parentBuild.wildfly
+                    sh 'rm -f build.yaml'
+                }
+            }
         }
-      }
-      steps {
-        copyArtifacts projectName: 'Silverpeas_Project_Definition_AutoDeploy', flatten: true
-        script {
-          def parentBuild = readYaml file: 'build.yaml'
-          String isReleased = sh returnStatus: true,
-              script: "curl --output /dev/null --silent --head --fail -r 0-0 ${nexusReleaseRepo}/org/silverpeas/silverpeas-project/${parentBuild.release}/silverpeas-project-${parentBuild.release}.pom"
-          parentVersion = isReleased == "0" ? parentBuild.release : parentBuild.version
-          wildflyVersion = parentBuild.wildfly
-          sh 'rm -f build.yaml'
+        stage('Checkout projects and check code changes') {
+            steps {
+                script {
+                    def type = getBranchType(branch)
+                    copyArtifacts projectName: "Silverpeas_${type}_AutoDeploy", flatten: true,
+                            selector: lastSuccessful()
+                    def previousBuild = readYaml file: 'build.yaml'
+                    previousBuildVersion = previousBuild.version
+                    projects.each { project ->
+                        dir(project.value) {
+                            git credentialsId: gitCredential,
+                                    branch: branch,
+                                    url: "${gitBaseRepo}/${project.value}"
+                            if (fileExists('pom.xml')) {
+                                def pom = readMavenPom()
+                                if (pom.parent) {
+                                    checkPOMParent(pom, [
+                                            project: project,
+                                            parentVersion: parentVersion,
+                                            branch: branch
+                                    ])
+                                }
+                            }
+                            changes[project.value] =
+                                    hasSomeChange(project.value, previousBuild.commits[project.value])
+                            changes.any = changes[project.value] || changes.any
+                        }
+                        if (!changes.any) {
+                            echo 'Build skipped due to no changes have been done since the last build'
+                        }
+                    }
+                }
+            }
         }
-      }
-    }
-    stage('Build Silverpeas-Core') {
-      steps {
-        dir(projects.core) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.core}"
-          buildMavenProject project: projects.core,
-              branch: branch,
-              version: buildVersion,
-              parentVersion: parentVersion
-          runSonarAnalysis project: projects.core + '2', branch: branch
-        }
-      }
-    }
-    stage('Build Silverpeas-Components') {
-      steps {
-        dir(projects.components) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.components}"
-          buildMavenProject project: projects.components,
-              branch: branch,
-              version: buildVersion,
-              parentVersion: parentVersion
-          runSonarAnalysis project: projects.components, branch: branch
-        }
-      }
-    }
-    stage('Build Silverpeas-Assembly') {
-      steps {
-        dir(projects.assembly) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.assembly}"
-          buildMavenProject project: projects.assembly,
-              branch: branch,
-              version: buildVersion,
-              parentVersion: parentVersion
-        }
-      }
-    }
-    stage('Build Silverpeas Setup') {
-      steps {
-        dir(projects.setup) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.setup}"
-          sh """
+        stage('Build Silverpeas') {
+            when { expression { changes.any } }
+            stages {
+                stage('Build Silverpeas-Core') {
+                    steps {
+                        dir(projects.core) {
+                            buildMavenProject project: projects.core,
+                                    branch: branch,
+                                    full: changes[projects.core],
+                                    version: buildVersion,
+                                    parentVersion: parentVersion
+                            runSonarAnalysis project: projects.core + '2', branch: branch, changes: changes
+                        }
+                    }
+                }
+                stage('Build Silverpeas-Components') {
+                    steps {
+                        dir(projects.components) {
+                            buildMavenProject project: projects.components,
+                                    branch: branch,
+                                    full: changes[projects.components],
+                                    version: buildVersion,
+                                    parentVersion: parentVersion
+                            runSonarAnalysis project: projects.components, branch: branch, changes: changes
+                        }
+                    }
+                }
+                stage('Build Silverpeas-Assembly') {
+                    steps {
+                        dir(projects.assembly) {
+                            script {
+                                def pom = readMavenPom()
+                                checkJackRabbitVersion(pom.properties['jackrabbit.version'])
+                            }
+                            buildMavenProject project: projects.assembly,
+                                    branch: branch,
+                                    full: true,
+                                    version: buildVersion,
+                                    parentVersion: parentVersion
+                        }
+                    }
+                }
+                stage('Build Silverpeas Setup') {
+                    steps {
+                        dir(projects.setup) {
+                            sh """
             sed -i -e "s/version = '.\\+'/version = '${buildVersion}'/g" build.gradle
             ./gradlew clean build test publishToMavenLocal
             """
-        }
-      }
-    }
-    stage('Build Silverpeas Distribution') {
-      steps {
-        dir(projects.distribution) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.distribution}"
-          buildMavenProject project: projects.distribution,
-              branch: branch,
-              version: buildVersion
-        }
-      }
-    }
-    stage('Build Silverpeas-Looks') {
-      steps {
-        dir(projects.looks) {
-          git credentialsId: gitCredential,
-              branch: branch,
-              url: "${gitBaseRepo}/${projects.looks}"
-          buildMavenProject project: projects.looks,
-              branch: branch,
-              version: buildVersion,
-              parentVersion: parentVersion
-          runSonarAnalysis project: projects.looks, branch: branch
-        }
-      }
-    }
-    stage('Publish Silverpeas-Core') {
-      steps {
-        dir(projects.core) {
-          publishMavenProject projects.core
-        }
-      }
-    }
-    stage('Publish Silverpeas-Components') {
-      steps {
-        dir(projects.components) {
-          publishMavenProject projects.components
-        }
-      }
-    }
-    stage('Publish Silverpeas-Assembly') {
-      steps {
-        dir(projects.assembly) {
-          publishMavenProject projects.assembly
-        }
-      }
-    }
-    stage('Publish Silverpeas-Setup') {
-      steps {
-        dir(projects.setup) {
-          sh """
+                        }
+                    }
+                }
+                stage('Build Silverpeas Distribution') {
+                    steps {
+                        dir(projects.distribution) {
+                            buildMavenProject project: projects.distribution,
+                                    full: true,
+                                    branch: branch,
+                                    version: buildVersion
+                        }
+                    }
+                }
+                stage('Build Silverpeas-Looks') {
+                    steps {
+                        dir(projects.looks) {
+                            buildMavenProject project: projects.looks,
+                                    branch: branch,
+                                    full: changes[projects.looks],
+                                    version: buildVersion,
+                                    parentVersion: parentVersion
+                            runSonarAnalysis project: projects.looks, branch: branch, changes: changes
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Core') {
+                    steps {
+                        dir(projects.core) {
+                            publishMavenProject projects.core
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Components') {
+                    steps {
+                        dir(projects.components) {
+                            publishMavenProject projects.components
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Assembly') {
+                    steps {
+                        dir(projects.assembly) {
+                            publishMavenProject projects.assembly
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Setup') {
+                    steps {
+                        dir(projects.setup) {
+                            sh """
             sed -i -e "s/${nexusReleaseRepo.replace('/', '\\\\/')}/${nexusBuildRepo.replace('/', '\\\\/')}/g" build.gradle
             ./gradlew publish
             """
-          script {
-            final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-            commits[projects.setup] = commit.trim()
-          }
+                            script {
+                                final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+                                commits[projects.setup] = commit.trim()
+                            }
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Distribution') {
+                    steps {
+                        dir(projects.distribution) {
+                            publishMavenProject projects.distribution
+                        }
+                    }
+                }
+                stage('Publish Silverpeas-Looks') {
+                    steps {
+                        dir(projects.looks) {
+                            publishMavenProject projects.looks
+                        }
+                    }
+                }
+                stage('Publish Community Web Site') {
+                    when {
+                        expression { branch == 'master' && changes.any }
+                    }
+                    steps {
+                        build job: 'Silverpeas Project Web Site Publisher', parameters: [
+                                string(name: 'SILVERPEAS_VERSION', value: buildVersion),
+                        ], wait: false
+                    }
+                }
+            }
         }
-      }
-    }
-    stage('Publish Silverpeas-Distribution') {
-      steps {
-        dir(projects.distribution) {
-          publishMavenProject projects.distribution
+        stage('Create YAML build report') {
+            steps {
+                script {
+                    sh 'mkdir -p target'
+                    if (changes.any) {
+                        sh 'rm -f build.yaml'
+                        writeYaml file: artifact, data: ['version': buildVersion,
+                                                         'parent' : parentVersion,
+                                                         'release': release,
+                                                         'commits': commits,
+                                                         'tested' : !params.SKIP_TEST,
+                                                         'QA'     : !params.SKIP_QUALITY]
+                    } else {
+                        sh 'mv build.yaml target/'
+                    }
+                }
+            }
         }
-      }
     }
-    stage('Publish Silverpeas-Looks') {
-      steps {
-        dir(projects.looks) {
-          publishMavenProject projects.looks
+    post {
+        success {
+            script {
+                currentBuild.displayName = changes.any ? buildVersion : previousBuildVersion
+
+            }
+            archiveArtifacts artifacts: artifact, fingerprint: true
+            sh 'rm -rf target'
         }
-      }
-    }
-    stage('Create YAML build report') {
-      steps {
-        script {
-          sh 'mkdir -p target'
-          writeYaml file: artifact, data: ['version': buildVersion,
-                                           'parent' : parentVersion,
-                                           'release': release,
-                                           'commits': commits,
-                                           'tested' : !params.SKIP_TEST,
-                                           'QA'     : !params.SKIP_QUALITY]
+        always {
+            step([$class                  : 'Mailer',
+                  notifyEveryUnstableBuild: true,
+                  recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+                  sendToIndividuals       : true])
         }
-      }
     }
-    stage('Publish Community Web Site') {
-      when {
-        expression { branch == 'master' }
-      }
-      steps {
-        build job: 'Silverpeas Project Web Site Publisher', parameters: [
-            string(name: 'SILVERPEAS_VERSION', value: buildVersion),
-        ], wait: false
-      }
-    }
-  }
-  post {
-    success {
-      script {
-        currentBuild.displayName = buildVersion
-      }
-      archiveArtifacts artifacts: artifact, fingerprint: true
-      sh 'rm -rf target'
-    }
-    always {
-      step([$class                  : 'Mailer',
-            notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
-            sendToIndividuals       : true])
-    }
-  }
 }
 
 @SuppressWarnings('unused')
 void pushToGithub(project, branch) {
-  withCredentials([usernamePassword(credentialsId: gitCredential,
-      usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
-    sh 'git config --local credential.helper "!f() { echo username=\\$GIT_AUTH_USR; echo password=\\$GIT_AUTH_PSW; }; f"'
-    sh "git push origin HEAD:$branch"
-  }
+    withCredentials([usernamePassword(credentialsId: gitCredential,
+            usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
+        sh 'git config --local credential.helper "!f() { echo username=\\$GIT_AUTH_USR; echo password=\\$GIT_AUTH_PSW; }; f"'
+        sh "git push origin HEAD:$branch"
+    }
 }
 
 void checkPOMParent(pom, args) {
-  if (!pom.parent.version.matches(/[0-9.]+/) &&
-      args.parentVersion && pom.parent.version != args.parentVersion) {
-    sh """
+    if (!pom.parent.version.matches(/[0-9.]+/) &&
+            args.parentVersion && pom.parent.version != args.parentVersion) {
+        sh """
     mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${args.parentVersion}]"
     git commit -am "Update parent POM to version ${args.parentVersion}"
     """
-    pushToGithub(args.project, args.branch)
-  } else if (pom.parent.version.contains('SNAPSHOT')) {
-    error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
-  }
+        pushToGithub(args.project, args.branch)
+    } else if (pom.parent.version.contains('SNAPSHOT')) {
+        error "The parent POM must be at a stable or a build version for this project to be deployed. Current version is ${pom.parent.version}"
+    }
 }
 
 void checkJackRabbitVersion(jackRabbitVersion) {
-  if (jackRabbitVersion != null && jackRabbitVersion.contains('SNAPSHOT')) {
-    error("The Jackrabbit JCA dependency must be a stable or a build version. Current version is ${jackRabbitVersion}")
-  }
+    if (jackRabbitVersion != null && jackRabbitVersion.contains('SNAPSHOT')) {
+        error("The Jackrabbit JCA dependency must be a stable or a build version. Current version is ${jackRabbitVersion}")
+    }
+}
+
+boolean hasSomeChange(project, previousCommit) {
+    String currentCommit = sh script: 'git rev-parse HEAD', returnStdout: true
+    String commit = currentCommit.trim()
+    echo "${project}: current commit is ${commit} and last build commit is ${previousCommit}"
+    return commit != previousCommit
 }
 
 void buildMavenProject(args) {
-  def pom = readMavenPom()
-
-  if (pom.parent) {
-    checkPOMParent(pom, args)
-  }
-
-  if (args.project == 'Silverpeas-Assembly') {
-    checkJackRabbitVersion(pom.properties['jackrabbit.version'])
-  }
-
-  sh """
+    sh """
     sed -i -e "s/<core.version>[0-9a-zA-Z.-]\\+/<core.version>${args.version}/g" pom.xml
     sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${args.version}/g" pom.xml
     mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${args.version}
     """
 
-  if (params.SKIP_TEST) {
-    sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
-  } else if (args.version.startsWith('6.1') || args.version.startsWith('6.2')) {
-    // in these versions, Wildfly is starting directly by each of the integration tests
-    sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
-  } else {
-    sh '''
+    if (params.SKIP_TEST || !args.full) {
+        sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
+    } else if (args.version.startsWith('6.1') || args.version.startsWith('6.2')) {
+        // in these versions, Wildfly is starting directly by each of the integration tests
+        sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
+    } else {
+        sh '''
       /opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
       mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
       /opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
       '''
-  }
+    }
 }
 
 void runSonarAnalysis(args) {
 // run sonarqube analysis only for the master or stable branch and only tests aren't skipped
 // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
 // the Silverpeas code repository can be used
-  if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH) && !params.SKIP_QUALITY) {
-    String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
-    withSonarQubeEnv {
-      sh """
+    if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH)
+            && !params.SKIP_QUALITY && args.changes[args.project]) {
+        String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
+        withSonarQubeEnv {
+            sh """
       JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
       -Dsonar.projectKey=Silverpeas_$args.project \\
       -Dsonar.organization=silverpeas \\
@@ -380,33 +420,49 @@ void runSonarAnalysis(args) {
       -Dsonar.host.url=$SONAR_HOST_URL \\
       -Dsonar.token=$SONAR_AUTH_TOKEN
       """
+        }
+        timeout(time: 30, unit: 'MINUTES') {
+            // Just in case something goes wrong, pipeline will be killed after a timeout
+            def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
+            if (qg.status != 'OK' && qg.status != 'WARNING') {
+                error "Pipeline aborted due to quality gate failure: ${qg.status}"
+            }
+        }
     }
-    timeout(time: 30, unit: 'MINUTES') {
-      // Just in case something goes wrong, pipeline will be killed after a timeout
-      def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
-      if (qg.status != 'OK' && qg.status != 'WARNING') {
-        error "Pipeline aborted due to quality gate failure: ${qg.status}"
-      }
-    }
-  }
 }
 
 void publishMavenProject(projectName) {
-  sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${nexusBuildRepo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
-  final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
-  commits[projectName] = commit.trim()
+    sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${nexusBuildRepo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
+    final String commit = sh script: 'git rev-parse HEAD', returnStdout: true
+    commits[projectName] = commit.trim()
 }
 
 String fetchBranchFromJobName() {
-  Matcher matcher = env.JOB_NAME =~ /.+_([\-a-zA-Z0-9.]+)_.+/
-  String branch = (matcher.matches() ? matcher[0][1] : '').toLowerCase()
-  if (branch == '') {
-    error 'The Jenkins job is misnamed! Expecting to find the branch name in it'
-  }
-  return branch == 'stable' ? env.STABLE_BRANCH : branch
+    Matcher matcher = env.JOB_NAME =~ /.+_([\-a-zA-Z0-9.]+)_.+/
+    String branch = (matcher.matches() ? matcher[0][1] : '').toLowerCase()
+    if (branch == '') {
+        error 'The Jenkins job is misnamed! Expecting to find the branch name in it'
+    }
+    return branch == 'stable' ? env.STABLE_BRANCH : branch
 }
 
 String getDockerImageVersion(imageVersions, branch) {
-  Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
-  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
+    Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
+    matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
+}
+
+String getBranchType(branch) {
+    String type
+    switch (branch) {
+        case env.STABLE_BRANCH:
+            type = 'Stable'
+            break
+        case 'master':
+            type = 'Master'
+            break
+        default:
+            type = branch
+            break
+    }
+    return type
 }
