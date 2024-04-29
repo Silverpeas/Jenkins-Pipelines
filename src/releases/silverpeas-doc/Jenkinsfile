@@ -121,7 +121,7 @@ pipeline {
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org, miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org, miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
             sendToIndividuals       : true])
     }
   }

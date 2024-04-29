@@ -454,7 +454,7 @@ pipeline {
                 STABLE_BRANCH to '${buildToRelease.release}.x'
                 IMAGE_FOR_STABLE to '${buildToRelease}'
                 """,
-              to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+              to: 'miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com'
           )
         }
       }
@@ -462,7 +462,7 @@ pipeline {
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "nicolas.eysseric@silverpeas.org, david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org, miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "david.lesimple@silverpeas.org, sebastien.vuillet@silverpeas.org, aurore.allibe@silverpeas.org, miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
             sendToIndividuals       : true])
     }
   }

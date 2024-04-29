@@ -126,7 +126,7 @@ Prepare for development iteration of next version ${nextVersion}"
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
             sendToIndividuals       : true])
     }
   }

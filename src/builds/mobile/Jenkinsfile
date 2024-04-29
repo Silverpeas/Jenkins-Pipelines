@@ -201,7 +201,7 @@ pipeline {
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org, sebastien.vuillet@silverpeas.org",
+            recipients              : "miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com, sebastien.vuillet@silverpeas.org",
             sendToIndividuals       : true])
     }
   }

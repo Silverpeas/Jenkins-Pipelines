@@ -82,7 +82,7 @@ mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Dj
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
             sendToIndividuals       : true])
     }
   }

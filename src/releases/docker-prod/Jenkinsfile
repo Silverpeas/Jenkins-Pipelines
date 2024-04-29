@@ -225,14 +225,14 @@ pipeline {
   take in charge the integration of our new Docker image of Silverpeas into the official Docker Hub.
   Don't forget to follow the status of this integration in https://github.com/docker-library/official-images/pull.
   """,
-            to: 'miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org'
+            to: 'miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com'
         )
       }
     }
     always {
       step([$class                  : 'Mailer',
             notifyEveryUnstableBuild: true,
-            recipients              : "miguel.moquillon@silverpeas.org, yohann.chastagnier@silverpeas.org",
+            recipients              : "miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
             sendToIndividuals       : true])
     }
   }
