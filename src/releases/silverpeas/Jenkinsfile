@@ -135,7 +135,8 @@ pipeline {
     stage('Check Jackrabbit version') {
       when {
         expression {
-          jackrabbitVersion.contains('build') || jackrabbitVersion.contains('SNAPSHOT')
+          branch != 'master' &&
+                  (jackrabbitVersion.contains('build') || jackrabbitVersion.contains('SNAPSHOT'))
         }
       }
       steps {
