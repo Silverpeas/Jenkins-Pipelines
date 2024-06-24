@@ -75,17 +75,26 @@ pipeline {
       }
       steps {
         sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
-        sh """
-          sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
-          sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
-          sed -i -e "s/SONAR_JAVA_VERSION=[0-9]\\+/SONAR_JAVA_VERSION=${params.SONAR_JAVA_VERSION}/g" Dockerfile
-          sed -i -e "s/version=[0-9.]\\+/version=${params.IMAGE_VERSION}/g" Dockerfile
-          sed -i -e "s/build=.\\+/build=1/g" Dockerfile
-          git commit -am "Update Dockerfile for building and registering image ${params.IMAGE_VERSION}"
-          git push origin HEAD:master
-          git tag ${params.IMAGE_VERSION}
-          git push origin --tags
-          """
+        script {
+          String status = sh script: """
+            sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
+            sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
+            sed -i -e "s/SONAR_JAVA_VERSION=[0-9]\\+/SONAR_JAVA_VERSION=${params.SONAR_JAVA_VERSION}/g" Dockerfile
+            sed -i -e "s/version=[0-9.]\\+/version=${params.IMAGE_VERSION}/g" Dockerfile
+            sed -i -e "s/build=.\\+/build=1/g" Dockerfile
+            git diff --quiet
+          """, returnStatus: true
+          if (status == '1') {
+            sh """
+              git commit -am "Update Dockerfile for building and registering image ${params.IMAGE_VERSION}"
+              git push origin HEAD:master
+              """
+          }
+          sh """
+            git tag ${params.IMAGE_VERSION}
+            git push origin --tags
+            """
+        }
       }
     }
     stage('Update current latest version') {
