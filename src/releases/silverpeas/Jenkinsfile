@@ -40,10 +40,11 @@ import java.util.regex.Matcher
 
 // versions of the Docker image to use with the different SCM branch names of the projects
 def imageVersions = [
-    '6.1.x' : '6.1',
-    '6.2.x' : '6.2.1',
-    '6.3.x' : '6.3.3',
-    'master': 'latest'
+        '6.1.x'            : '6.1',
+        '6.2.x'            : '6.2.1',
+        '6.3.x'            : '6.3.3',
+        '6.4.x'            : '6.4',
+        'master'           : 'latest'
 ]
 
 String imageVersion = getDockerImageVersion(imageVersions)
