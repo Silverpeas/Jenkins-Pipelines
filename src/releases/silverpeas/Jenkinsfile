@@ -507,7 +507,7 @@ void publishVersionOfMavenProject(args) {
       git commit -am "Update parent POM to version ${args.parent}"
       """
   }
-  if (fileExists('Jenkinsfile') && !args.isPatch) {
+  if (fileExists('Jenkinsfile') && args.isPatch == 'false') {
     sh """
       sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${args.version}'/g" Jenkinsfile
       """
@@ -522,7 +522,7 @@ void publishVersionOfMavenProject(args) {
 }
 
 void publishVersionOfGradleProject(args) {
-  if (fileExists("Jenkinsfile") && !args.isPatch) {
+  if (fileExists("Jenkinsfile") && args.isPatch == 'false') {
     sh """
       sed -i -e "s/silverpeas\\/silverbuild'/silverpeas\\/silverbuild:${args.version}'/g" Jenkinsfile
       """
@@ -534,7 +534,7 @@ void publishVersionOfGradleProject(args) {
 }
 
 void prepareNextVersion(args) {
-  if (!args.isPatch) {
+  if (args.isPatch == 'false') {
     echo "Create bug-fix branch ${args.version}.x"
     createMinorBranch(args)
   }
