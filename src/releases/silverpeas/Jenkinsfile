@@ -88,7 +88,7 @@ pipeline {
     branch = getBranch()
     isPatchVersion = isPatchVersion()
     wildflyVersion = ''
-    jackrabbitVersion = ''
+    jackrabbitVersion = null
     nextVersion = ''
     pomParentVersion = ''
     buildToRelease = null
@@ -136,7 +136,7 @@ pipeline {
     stage('Check Jackrabbit version') {
       when {
         expression {
-          branch != 'master' &&
+          branch != 'master' && jackrabbitVersion != null &&
                   (jackrabbitVersion.contains('build') || jackrabbitVersion.contains('SNAPSHOT'))
         }
       }
