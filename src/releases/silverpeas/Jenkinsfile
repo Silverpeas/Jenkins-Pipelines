@@ -456,7 +456,9 @@ pipeline {
                 STABLE_BRANCH to '${buildToRelease.release}.x'
                 IMAGE_FOR_STABLE to '${buildToRelease}'
                 """,
-              to: 'miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com'
+              to: 'miguel.moquillon@silverpeas.org,' +
+                      'david.lesimple@silverpeas.com,sebastien.vuillet@silverpeas.com,' +
+                      'silveryocha@chastagnier.com'
           )
         }
       }
