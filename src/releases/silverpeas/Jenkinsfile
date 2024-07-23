@@ -364,18 +364,6 @@ pipeline {
       }
     }
 
-    stage('Publish Silverpeas Izpack Installer') {
-      when {
-        expression { branch == env.STABLE_BRANCH || branch == 'master' }
-      }
-      steps {
-        build job: 'Silverpeas IzPack Installer', parameters: [
-            string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release),
-            string(name: 'WILDFLY_VERSION', value: wildflyVersion.replace(".Final", ""))
-        ], wait: false
-      }
-    }
-
     stage('Publish Docker Image for development environment') {
       when {
         expression { !isPatchVersion }
@@ -401,6 +389,9 @@ pipeline {
     }
 
     stage('Publish Docker Image of Silverpeas for testing purpose') {
+      when {
+        expression { false }
+      }
       steps {
         build job: 'Silverpeas Test Image', parameters: [
             string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release),
