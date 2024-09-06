@@ -187,7 +187,9 @@ pipeline {
                                     full: changes[projects.core],
                                     version: buildVersion,
                                     parentVersion: parentVersion
-                            runSonarAnalysis project: projects.core + '2', branch: branch, changes: changes
+                            runSonarAnalysis project: projects.core + '2',
+                                    branch: branch,
+                                    change: changes[projects.core]
                         }
                     }
                 }
@@ -199,7 +201,9 @@ pipeline {
                                     full: changes[projects.components],
                                     version: buildVersion,
                                     parentVersion: parentVersion
-                            runSonarAnalysis project: projects.components, branch: branch, changes: changes
+                            runSonarAnalysis project: projects.components,
+                                    branch: branch,
+                                    change: changes[projects.components]
                         }
                     }
                 }
@@ -246,7 +250,9 @@ pipeline {
                                     full: changes[projects.looks],
                                     version: buildVersion,
                                     parentVersion: parentVersion
-                            runSonarAnalysis project: projects.looks, branch: branch, changes: changes
+                            runSonarAnalysis project: projects.looks,
+                                    branch: branch,
+                                    change: changes[projects.looks]
                         }
                     }
                 }
@@ -411,11 +417,11 @@ void runSonarAnalysis(args) {
 // run sonarqube analysis only for the master or stable branch and only tests aren't skipped
 // for quality checking after some quality issues corrections, the dedicated sonarqube branch in
 // the Silverpeas code repository can be used
-    if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH)
-            && !params.SKIP_QUALITY && args.changes[args.project]) {
-        String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
-        withSonarQubeEnv {
-            sh """
+    if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH) && !params.SKIP_QUALITY) {
+        if (args.change) {
+            String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
+            withSonarQubeEnv {
+                sh """
       JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
       -Dsonar.projectKey=Silverpeas_$args.project \\
       -Dsonar.organization=silverpeas \\
@@ -423,13 +429,17 @@ void runSonarAnalysis(args) {
       -Dsonar.host.url=$SONAR_HOST_URL \\
       -Dsonar.token=$SONAR_AUTH_TOKEN
       """
-        }
-        timeout(time: 30, unit: 'MINUTES') {
-            // Just in case something goes wrong, pipeline will be killed after a timeout
-            def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
-            if (qg.status != 'OK' && qg.status != 'WARNING') {
-                error "Pipeline aborted due to quality gate failure: ${qg.status}"
             }
+            timeout(time: 30, unit: 'MINUTES') {
+                // Just in case something goes wrong, pipeline will be killed after a timeout
+                def qg = waitForQualityGate()
+                // Reuse taskId previously collected by withSonarQubeEnv
+                if (qg.status != 'OK' && qg.status != 'WARNING') {
+                    error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                }
+            }
+        } else {
+            echo "No change since the last analysis for ${args.project}: skip quality analysis"
         }
     }
 }
