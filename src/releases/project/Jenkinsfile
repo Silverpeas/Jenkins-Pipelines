@@ -89,7 +89,7 @@ pipeline {
     stage('Check dependencies') {
       when {
         expression {
-          jcrAccessControl.contains('SNAPSHOT') || jcrAccessControl.contains('build')
+          jcrAccessControl && (jcrAccessControl.contains('SNAPSHOT') || jcrAccessControl.contains('build'))
         }
       }
       steps {
