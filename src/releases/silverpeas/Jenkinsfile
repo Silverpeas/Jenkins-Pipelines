@@ -388,10 +388,7 @@ pipeline {
       }
     }
 
-    stage('Publish Docker Image of Silverpeas for testing purpose') {
-      when {
-        expression { false }
-      }
+    stage('Publish Docker Image of Silverpeas for trial purpose') {
       steps {
         build job: 'Silverpeas Test Image', parameters: [
             string(name: 'SILVERPEAS_VERSION', value: buildToRelease.release),
