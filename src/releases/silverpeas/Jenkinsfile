@@ -126,7 +126,7 @@ pipeline {
 
     stage('Check the build version can be used for release') {
       when {
-        expression { !buildToRelease.tested }
+        expression { !buildToRelease.tested || !buildToRelease.QA }
       }
       steps {
         error("The build ${buildToRelease.version} cannot be used for the release of ${buildToRelease.release} as it hasn't been tested or no QA has been applied on it!")
