@@ -147,9 +147,13 @@ pipeline {
                 script {
                     def type = getBranchType(branch)
                     copyArtifacts projectName: "Silverpeas_${type}_AutoDeploy", flatten: true,
-                            selector: lastSuccessful()
-                    def previousBuild = readYaml file: 'build.yaml'
-                    previousBuildVersion = previousBuild.version
+                            selector: lastSuccessful(), optional: true
+                    def previousBuild = null;
+                    if (fileExists('build.yaml')) {
+                        // not first build
+                        previousBuild = readYaml file: 'build.yaml'
+                        previousBuildVersion = previousBuild.version
+                    }
                     projects.each { project ->
                         dir(project.value) {
                             git credentialsId: gitCredential,
@@ -165,7 +169,7 @@ pipeline {
                                     ])
                                 }
                             }
-                            changes[project.value] =
+                            changes[project.value] = previousBuild == null ? true :
                                     hasSomeChange(project.value, previousBuild.commits[project.value])
                             changes.any = changes[project.value] || changes.any
                         }
