@@ -14,11 +14,20 @@ import java.util.regex.Matcher
  * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
  */
+
+// versions of the Docker image to use with the different SCM branch names of the projects
+def imageVersions = [
+        '1.0.x'            : '6.4',
+        'main'             : 'latest'
+]
+
+String imageVersion = getDockerImageVersion(imageVersions)
+
 pipeline {
 
   agent {
     docker {
-      image "silverpeas/silverbuild"
+      image "silverpeas/silverbuild:${imageVersion}"
       args '''
           -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
           -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
@@ -31,7 +40,7 @@ pipeline {
 
   parameters {
     string(
-        description: 'The build version of Silverpeas SSO from which the release has to be done',
+        description: 'The build version of Silverpeas WBE from which the release has to be done',
         name: 'BUILD_VERSION'
     )
   }
@@ -39,6 +48,7 @@ pipeline {
   environment {
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-WebBrowserEdition'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    branch = getBranch()
     commit = ''
     version = ''
     nextVersion = ''
@@ -50,7 +60,7 @@ pipeline {
   stages {
     stage('Prepare the release') {
       steps {
-        copyArtifacts projectName: 'Silverpeas_WebBrowserEdition_AutoDeploy', flatten: true,
+        copyArtifacts projectName: "Silverpeas_WebBrowserEdition_AutoDeploy", flatten: true,
             selector: specific(params.BUILD_VERSION)
         script {
           def lastBuild = readYaml file: 'build.yaml'
@@ -62,7 +72,7 @@ pipeline {
     }
     stage('Checkout the build version') {
       steps {
-        git url: gitRepo, branch: 'main', credentialsId: gitCredential
+        git url: gitRepo, branch: branch, credentialsId: gitCredential
         sh """
           git checkout ${commit}
           git checkout -b release-${version}
@@ -76,7 +86,7 @@ pipeline {
     }
     stage('Check POM parent version') {
       when {
-        expression { isStableVersion(parentVersion) }
+        expression { !isStableVersion(parentVersion) }
       }
       steps {
         error "The POM parent must be at a stable version"
@@ -84,7 +94,7 @@ pipeline {
     }
     stage('Check Silverpeas version') {
       when {
-        expression { isStableVersion(silverpeasVersion) }
+        expression { !isStableVersion(silverpeasVersion) }
       }
       steps {
         error "The dependency on Silverpeas must be at a stable version"
@@ -107,13 +117,36 @@ pipeline {
           '''
       }
     }
+    stage('Create the stable branch for the new release') {
+      when {
+        expression { branch == 'main' }
+      }
+      environment {
+        GIT_AUTH = credentials("${gitCredential}")
+      }
+      steps {
+        sh """
+          git checkout -b ${version}.x
+          sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${version}.1/g" pom.xml
+          mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${version}.1-SNAPSHOT
+          mvn clean install -Dmaven.test.skip=true
+          git commit -am "Prepare branch ${version}.x for bug fixes"
+          """
+        sh '''
+          git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
+          '''
+        sh """
+          git push origin HEAD:${version}.x
+          """
+      }
+    }
     stage('Prepare the development of the next version') {
       environment {
         GIT_AUTH = credentials("${gitCredential}")
       }
       steps {
         sh """
-          git checkout main
+          git checkout ${branch}
           sed -i -e "s/<next.release>[0-9.]\\+/<next.release>${nextVersion}/g" pom.xml
           mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${nextVersion}-SNAPSHOT
           mvn clean install -Dmaven.test.skip=true
@@ -152,6 +185,16 @@ Prepare for development iteration of next version ${nextVersion}"
             sendToIndividuals       : true])
     }
   }
+}
+
+String getBranch() {
+  Matcher matcher = params.BUILD_VERSION =~ '^(\\d+.\\d+).\\d+$'
+  matcher ? "${matcher[0][1]}.x" : 'main'
+}
+
+String getDockerImageVersion(imageVersions) {
+  String currentBranch = getBranch()
+  imageVersions[currentBranch]
 }
 
 String getNextVersion(String version) {

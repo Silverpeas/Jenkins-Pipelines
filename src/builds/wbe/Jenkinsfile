@@ -15,35 +15,11 @@ import java.util.regex.Matcher
  * IMAGE_FOR_STABLE  the version of the Docker image to be used by this pipeline for stable version
  *                   of the project.
  *
- * Because this pipeline is based upon some convention rules, some expectations have to be
- * fulfilled:
- * Jenkins Job name : the name of the Jenkins job executing this pipeline has to be named as
- *                    '[ANY WORD]_[TYPE_BRANCH]_[ANY WORD]' with TYPE_BRANCH the type of the SCM
- *                    branch: 'Master' for the current development version, 'Stable' for the current
- *                    stable version, the project's branch name for older stable versions.
- * Dependent Jenkins job name: the name of the job producing a build version of Silverpeas upon
- *                             which this project depend must be formatted as
- *                             Silverpeas_[TYPE_BRANCH]_AutoDeploy with TYPE_BRANCH the type of
- *                             the SCM branch: 'Master' for the current development version,
- *                             'Stable' for the current stable version, the project's branch name
- *                             for older stable versions.
- *
- * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
- * the builds and to containerize them from the host OS.
+ * It requires the following parameters:
+ * BRANCH            the branch of the project on which the build version has to be built
  */
 
-// versions of the Docker image to use with the different SCM branch names of the projects
-def imageVersions = [
-        '6.1.x'            : '6.1',
-        '6.2.x'            : '6.2.1',
-        '6.3.x'            : '6.3.3',
-        '6.4.x'            : '6.4',
-        'master'           : 'latest'
-]
-
-String branchType = getBranchTypeFromJobName()
-String branch = getBranch(branchType)
-String imageVersion = getDockerImageVersion(imageVersions, branch)
+String imageVersion = '6.4'
 
 pipeline {
 
@@ -60,10 +36,19 @@ pipeline {
     }
   }
 
+  parameters {
+    string(
+            description: 'The branch on which the build has to be done',
+            name: 'BRANCH',
+            defaultValue: 'main'
+    )
+  }
+
   environment {
     nexusRepo = 'https://nexus3.silverpeas.org/repository/builds'
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-WebBrowserEdition'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    silverpeasBuildJobName = 'Silverpeas_Stable_AutoDeploy'
     parentVersion = ''
     buildVersion = ''
     release = ''
@@ -76,9 +61,8 @@ pipeline {
     stage('Resolve dependency on Silverpeas') {
       steps {
         script {
-          echo "Working on branch ${branch}"
-          String silverpeasJobName = "Silverpeas_${branchType}_AutoDeploy"
-          copyArtifacts projectName: silverpeasJobName, flatten: true
+          echo "Working on branch ${params.BRANCH}"
+          copyArtifacts projectName: silverpeasBuildJobName, flatten: true
           def silverpeasBuild = readYaml file: 'build.yaml'
           parentVersion = silverpeasBuild.parent
           silverpeasVersion = silverpeasBuild.version
@@ -90,7 +74,7 @@ pipeline {
     }
     stage('Prepare the project') {
       steps {
-        git([url: gitRepo, branch: branch, credentialsId: gitCredential])
+        git([url: gitRepo, branch: params.BRANCH, credentialsId: gitCredential])
         script {
           pom = readMavenPom()
           release = pom.properties['next.release']
@@ -142,7 +126,8 @@ pipeline {
       }
       when {
         expression {
-          pom.properties['silverpeas.version'] != silverpeasVersion
+          !pom.properties['silverpeas.version'].matches(/[0-9.]+/) &&
+                  pom.properties['silverpeas.version'] != silverpeasVersion
         }
       }
       steps {
@@ -152,7 +137,7 @@ pipeline {
         sh """
           sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
           git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
-          git push origin HEAD:${branch}
+          git push origin HEAD:${params.BRANCH}
           """
       }
     }
@@ -193,26 +178,4 @@ pipeline {
             sendToIndividuals       : true])
     }
   }
-}
-
-String getBranchTypeFromJobName() {
-  Matcher matcher = env.JOB_NAME =~ /.+_([\-a-zA-Z0-9.]+)_.+/
-  String type = (matcher.matches() ? matcher[0][1] : '')
-  if (type == '') {
-    error 'The Jenkins job is misnamed! Expecting to find the branch type in it'
-  }
-  return type;
-}
-
-String getBranch(String branchType) {
-  String typeInLowerCase = branchType.toLowerCase()
-  if (typeInLowerCase.startsWith('master')) {
-    return typeInLowerCase.replace('master', 'main')
-  }
-  return typeInLowerCase == 'stable' ? env.STABLE_BRANCH : typeInLowerCase
-}
-
-String getDockerImageVersion(imageVersions, branch) {
-  Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
-  matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
 }
