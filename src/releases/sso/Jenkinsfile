@@ -17,7 +17,7 @@ pipeline {
 
   agent {
     docker {
-      image "silverpeas/silverbuild"
+      image "silverpeas/silverbuild:6.4"
       args '''
           -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
           -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
@@ -76,7 +76,7 @@ pipeline {
     }
     stage('Check POM parent version') {
       when {
-        expression { isStableVersion(parentVersion) }
+        expression { !isStableVersion(parentVersion) }
       }
       steps {
         error "The POM parent must be at a stable version"
@@ -84,7 +84,7 @@ pipeline {
     }
     stage('Check Silverpeas version') {
       when {
-        expression { isStableVersion(silverpeasVersion) }
+        expression { !isStableVersion(silverpeasVersion) }
       }
       steps {
         error "The dependency on Silverpeas must be at a stable version"
@@ -154,12 +154,12 @@ Prepare for development iteration of next version ${nextVersion}"
   }
 }
 
-String getNextVersion(String version) {
+static String getNextVersion(String version) {
   String[] parts = version.split('\\.')
   "${parts[0]}.${(parts[1] as Integer) + 1}"
 }
 
-String isStableVersion(String version) {
+static String isStableVersion(String version) {
   Matcher matcher = version =~ '^(\\d+.\\d+(.\\d)*)$'
   return matcher.matches()
 }
