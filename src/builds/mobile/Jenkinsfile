@@ -104,7 +104,9 @@ pipeline {
         }
         stage('Prepare the project') {
             steps {
-                git([url: gitRepo, branch: branch, credentialsId: gitCredential])
+                git credentialsId: gitCredential,
+                        branch: branch,
+                        url: gitRepo
                 script {
                     copyArtifacts projectName: env.JOB_NAME, flatten: true
                     def mobileBuild = readYaml file: 'build.yaml'
@@ -143,43 +145,43 @@ pipeline {
                     }
                 }
                 stage('Update POM parent') {
-                    environment {
-                        GIT_AUTH = credentials("${gitCredential}")
-                    }
                     when {
                         expression {
                             !pom.parent.version.matches(/[0-9.]+/) && parentVersion && pom.parent.version != parentVersion
                         }
                     }
                     steps {
-                        sh '''
+                        withCredentials([usernamePassword(credentialsId: gitCredential,
+                                usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
+                            sh '''
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
           '''
-                        sh """
+                            sh """
           mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
           git commit -am "Update parent POM to version ${parentVersion}"
           git push origin HEAD:${branch}
           """
+                        }
                     }
                 }
                 stage('Update dependency on Silverpeas') {
-                    environment {
-                        GIT_AUTH = credentials("${gitCredential}")
-                    }
                     when {
                         expression {
                             pom.properties['silverpeas.version'] != silverpeasVersion
                         }
                     }
                     steps {
-                        sh '''
+                        withCredentials([usernamePassword(credentialsId: gitCredential,
+                                usernameVariable: 'GIT_AUTH_USR', passwordVariable: 'GIT_AUTH_PSW')]) {
+                            sh '''
           git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"
           '''
-                        sh """
+                            sh """
           sed -i -e "s/<silverpeas.version>[0-9a-zA-Z.-]\\+/<silverpeas.version>${silverpeasVersion}/g" pom.xml
           git commit -am "Update dependency on Silverpeas to version ${silverpeasVersion}"
           git push origin HEAD:${branch}
           """
+                        }
                     }
                 }
                 stage('Build and Publish') {
