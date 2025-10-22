@@ -19,7 +19,15 @@ import java.util.regex.Matcher
  * BRANCH            the branch of the project on which the build version has to be built
  */
 
-String imageVersion = '6.4'
+// versions of the Docker image to use with the different SCM branch names of the projects
+def imageVersions = [
+        '6.1.x' : '6.1',
+        '6.2.x' : '6.2.1',
+        '6.3.x' : '6.3.3',
+        '6.4.x' : '6.4',
+        'main': 'latest'
+]
+String imageVersion = getDockerImageVersion(imageVersions, params.BRANCH)
 
 pipeline {
 
@@ -48,7 +56,7 @@ pipeline {
     nexusRepo = 'https://nexus3.silverpeas.org/repository/builds'
     gitRepo = 'https://github.com/Silverpeas/Silverpeas-WebBrowserEdition'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
-    silverpeasBuildJobName = 'Silverpeas_Stable_AutoDeploy'
+    silverpeasBuildJobName = ''
     parentVersion = ''
     buildVersion = ''
     release = ''
@@ -62,6 +70,7 @@ pipeline {
       steps {
         script {
           echo "Working on branch ${params.BRANCH}"
+          silverpeasBuildJobName = getSilverpeasDependencyProject(params.BRANCH)
           copyArtifacts projectName: silverpeasBuildJobName, flatten: true
           def silverpeasBuild = readYaml file: 'build.yaml'
           parentVersion = silverpeasBuild.parent
@@ -178,4 +187,25 @@ pipeline {
             sendToIndividuals       : true])
     }
   }
+}
+
+String getSilverpeasDependencyProject(String branch) {
+    String project
+    switch (branch) {
+        case 'main':
+            project = 'Silverpeas_Master_AutoDeploy'
+            break
+        case env.STABLE_BRANCH:
+            project = 'Silverpeas_Stable_AutoDeploy'
+            break
+        default:
+            project = "Silverpeas_${branch}_AutoDeploy"
+            break
+    }
+    return project
+}
+
+String getDockerImageVersion(imageVersions, branch) {
+    Matcher matcher = branch =~ '^(\\d+.\\d+\\..*)$'
+    matcher ? imageVersions["${matcher[0][1]}"] : imageVersions[branch]
 }
