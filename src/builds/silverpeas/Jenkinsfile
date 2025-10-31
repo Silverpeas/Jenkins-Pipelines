@@ -1,3 +1,5 @@
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.regex.Matcher
 
 /**
@@ -349,13 +351,25 @@ pipeline {
             archiveArtifacts artifacts: artifact, fingerprint: true
             sh 'rm -rf target'
         }
+        failure {
+            script {
+                if (Files.exists(Path.of('home', 'silverbuild', 'wildfly-loadedClasses.txt'))) {
+                    emailext body: '''
+The job has failed. Please see in attachments the Java classes that were loaded during the 
+integration tests. This is for failure due to a PermaSpace out of memory.
+''',
+                             to: 'miguel.moquillon@silverpeas.org',
+                            subject: 'Job failure. See loaded classes in JVM',
+                            attachmentsPattern: '/home/silverbuild/wildfly-loadedClasses*'
+                }
+            }
+        }
         always {
             step([$class                  : 'Mailer',
                   notifyEveryUnstableBuild: true,
                   recipients              :
                           'miguel.moquillon@silverpeas.org,' +
-                          'david.lesimple@silverpeas.com,sebastien.vuillet@silverpeas.com,' +
-                          'silveryocha@chastagnier.com',
+                          'david.lesimple@silverpeas.com,sebastien.vuillet@silverpeas.com',
                   sendToIndividuals       : true])
         }
     }
