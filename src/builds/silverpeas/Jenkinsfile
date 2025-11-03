@@ -353,14 +353,17 @@ pipeline {
         }
         failure {
             script {
-                if (Files.exists(Path.of('home', 'silverbuild', 'wildfly-loadedClasses.txt'))) {
+                def status = sh script: "test -e $HOME/wildfly-mem.hprof", returnStatus: true
+                if (status as int == 0) {
                     emailext body: '''
-The job has failed. Please see in attachments the Java classes that were loaded during the 
-integration tests. This is for failure due to a PermaSpace out of memory.
+The job has failed by Out of memory. Please see in attachments the memory dump of the JVM.
 ''',
-                             to: 'miguel.moquillon@silverpeas.org',
-                            subject: 'Job failure. See loaded classes in JVM',
-                            attachmentsPattern: '/home/silverbuild/wildfly-loadedClasses*'
+                            to: 'miguel.moquillon@silverpeas.org',
+                            subject: 'Job failure by Out of Memory',
+                            attachmentsPattern: '/home/silverbuild/wildfly-mem.hprof'
+                    sh script: "rm -f $HOME/wildfly-mem.hprof", returnStatus: true
+                } else {
+                    echo 'No failure by out of memory'
                 }
             }
         }
