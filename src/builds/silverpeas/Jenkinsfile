@@ -1,5 +1,3 @@
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.regex.Matcher
 
 /**
@@ -7,6 +5,12 @@ import java.util.regex.Matcher
  * Silverpeas-Core, Silverpeas-Components, and Silverpeas-Looks, and no more. A distribution of the
  * build version of Silverpeas is eventually published. Each successful build version of Silverpeas
  * in which tests and QA weren't skipped is a candidate for a release of a stable version.
+ *
+ * The pipeline builds Silverpeas-Core, then Silverpeas-Components, and eventually
+ * Silverpeas-Looks if and only if a change has been detected in one of these projects. The
+ * builds include at their end a quality analysis against SonarCloud. Once the builds succeed, the
+ * constructed artifacts is then deployed into the Silverpeas's remote Maven repository. Any
+ * fail of one of the steps finishes in error the pipeline.
  *
  * This pipeline triggers at the end of the job the following pipelines:
  * - 'Silverpeas Test Image' to publish a Docker image of the build version of Silverpeas for
@@ -421,7 +425,7 @@ void buildMavenProject(args) {
     """
 
     if (params.SKIP_TEST || !args.full) {
-        sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true -Dcontext=ci"
+        sh "mvn clean install -Pdeployment -Dmaven.test.skip=true -Djava.awt.headless=true"
     } else if (args.version.startsWith('6.1') || args.version.startsWith('6.2')) {
         // in these versions, Wildfly is starting directly by each of the integration tests
         sh "mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci"
@@ -441,14 +445,12 @@ void runSonarAnalysis(args) {
     if ((args.branch == 'master' || args.branch == env.STABLE_BRANCH) && !params.SKIP_QUALITY) {
         if (args.change) {
             String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
-            withSonarQubeEnv {
+            withSonarQubeEnv('Silverpeas SonarCloud') {
                 sh """
-      JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
+      JAVA_HOME=$jdkHome mvn org.codehaus.mojo:sonar-maven-plugin::sonar \\
       -Dsonar.projectKey=Silverpeas_$args.project \\
       -Dsonar.organization=silverpeas \\
-      -Dsonar.branch.name=$args.branch \\
-      -Dsonar.host.url=$SONAR_HOST_URL \\
-      -Dsonar.token=$SONAR_AUTH_TOKEN
+      -Dsonar.branch.name=$args.branch
       """
             }
             timeout(time: 30, unit: 'MINUTES') {

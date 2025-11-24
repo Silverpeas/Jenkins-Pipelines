@@ -51,14 +51,12 @@ pipeline {
           """
         script {
           String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
-          withSonarQubeEnv {
+          withSonarQubeEnv('Silverpeas SonarCloud') {
             sh """
-            JAVA_HOME=$jdkHome mvn $SONAR_MAVEN_GOAL \\
+            JAVA_HOME=$jdkHome mvn org.codehaus.mojo:sonar-maven-plugin::sonar \\
             -Dsonar.projectKey=Silverpeas_Silverpeas-Kernel \\
             -Dsonar.organization=silverpeas \\
-            -Dsonar.branch.name=main \\
-            -Dsonar.host.url=$SONAR_HOST_URL \\
-            -Dsonar.token=$SONAR_AUTH_TOKEN
+            -Dsonar.branch.name=main
             """
           }
           timeout(time: 30, unit: 'MINUTES') {
