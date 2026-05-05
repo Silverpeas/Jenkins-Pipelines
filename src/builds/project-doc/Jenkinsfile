@@ -36,7 +36,8 @@ pipeline {
   parameters {
     string (
         defaultValue: '',
-        description: 'Version of Silvereas with which the web site info has to be updated. By default, an empty value means no update',
+        description: 'Version of Silverpeas with which the web site info has to be updated. By ' +
+                'default, an empty value means no update',
         name: 'SILVERPEAS_VERSION'
     )
   }
@@ -131,7 +132,7 @@ pipeline {
       steps {
         script {
           sh """
-            mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[$parentVersion]"
+            mvn -U versions:update-parent -DgenerateBackupPoms=false -DskipResolution=true -DparentVersion="$parentVersion"
             git commit -am "Update parent POM to version $parentVersion"
             """
         }
