@@ -493,7 +493,7 @@ void publishVersionOfMavenProject(args) {
   def pom = readMavenPom()
   if (pom.parent && args.parent && pom.parent.version != args.parent) {
     sh """
-      mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${args.parent}]"
+      mvn -U versions:update-parent -DgenerateBackupPoms=false -DskipResolution=true -DparentVersion="${args.parent}"
       git commit -am "Update parent POM to version ${args.parent}"
       """
   }

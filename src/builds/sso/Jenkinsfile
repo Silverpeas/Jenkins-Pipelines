@@ -91,7 +91,7 @@ pipeline {
       }
       steps {
         sh """
-          mvn -U versions:update-parent -DgenerateBackupPoms=false -DparentVersion="[${parentVersion}]"
+          mvn -U versions:update-parent -DgenerateBackupPoms=false -DskipResolution=true -DparentVersion="${parentVersion}"
           git commit -am "Update parent POM to version ${parentVersion}"
           """
         sh '''
