@@ -5,14 +5,18 @@ import java.util.regex.Matcher
  * projects.
  *
  * Some parameters for this pipeline are required as they are used as arguments in the image building.
- * The version of the Docker image to build is also provided as a parameter for this pipeline. If the version
- * is other than 'latest', then the Git project is tagged with that version once the image build done.
+ * The version of the Docker image to build is also provided as a parameter for this pipeline.
+ *
+ * Whatever the version of the image to build, the latest Dockerfile (the one in the branch
+ * "master" will be used). Any Docker image tagged with the same version will be overridden by the
+ * the new Docker image.
  *
  * It requires the following parameters:
  * IMAGE_VERSION      the version number of the image to build. The version of the image should
  *                    match the version number of the Silverpeas platform for which the projects
  *                    will be built. For the next major or minor version of the Silverpeas platform
- *                    in development, 'latest' is the recommended choice.
+ *                    in development, 'latest' is the recommended choice. Accepts only versions
+ *                    in 2 digits (the extra digits are removed).
  * WILDFLY_VERSION    the version of Wildfly prepared for running the integration tests
  * JAVA_VERSION       the version of Java on which the Silverpeas platform is based.
  * SONAR_JAVA_VERSION the version of Java on which the Sonar analysis tool should be run.
@@ -66,37 +70,6 @@ pipeline {
         git([url: gitRepo, credentialsId: gitCredential])
       }
     }
-    stage('Release stable version') {
-      environment {
-        GIT_AUTH = credentials("${gitCredential}")
-      }
-      when {
-        expression { params.IMAGE_VERSION != 'latest' }
-      }
-      steps {
-        sh 'git config --local credential.helper "!f() { echo username=\\${GIT_AUTH_USR}; echo password=\\$GIT_AUTH_PSW; }; f"'
-        script {
-          String status = sh script: """
-            sed -i -e "s/WILDFLY_VERSION=[0-9.]\\+/WILDFLY_VERSION=${params.WILDFLY_VERSION}/g" Dockerfile
-            sed -i -e "s/JAVA_VERSION=[0-9]\\+/JAVA_VERSION=${params.JAVA_VERSION}/g" Dockerfile
-            sed -i -e "s/SONAR_JAVA_VERSION=[0-9]\\+/SONAR_JAVA_VERSION=${params.SONAR_JAVA_VERSION}/g" Dockerfile
-            sed -i -e "s/version=[0-9.]\\+/version=${params.IMAGE_VERSION}/g" Dockerfile
-            sed -i -e "s/build=.\\+/build=1/g" Dockerfile
-            git diff --quiet
-          """, returnStatus: true
-          if (status == '1') {
-            sh """
-              git commit -am "Update Dockerfile for building and registering image ${params.IMAGE_VERSION}"
-              git push origin HEAD:master
-              """
-          }
-          sh """
-            git tag ${params.IMAGE_VERSION}
-            git push origin --tags
-            """
-        }
-      }
-    }
     stage('Update current latest version') {
       environment {
         GIT_AUTH = credentials("${gitCredential}")
@@ -124,10 +97,31 @@ pipeline {
         }
       }
     }
-    stage('Publish version') {
+    stage('Publish stable version') {
+      when {
+        expression { params.IMAGE_VERSION != 'latest' }
+      }
       steps {
         script {
-          def dockerImage = docker.build "${imageName}:${params.IMAGE_VERSION}"
+          def tag = normalizeTag(params.IMAGE_VERSION)
+          def dockerImage = docker.build("${imageName}:${tag}",
+            "--build-arg WILDFLY_VERSION=${params.WILDFLY_VERSION} " +
+                "--build-arg JAVA_VERSION=${params.JAVA_VERSION} " +
+                "--build-arg SONAR_JAVA_VERSION=${params.SONAR_JAVA_VERSION} " +
+                " .")
+          docker.withRegistry('', registryCredential) {
+            dockerImage.push()
+          }
+        }
+      }
+    }
+    stage('Publish latest version') {
+      when {
+        expression { params.IMAGE_VERSION == 'latest' }
+      }
+      steps {
+        script {
+          def dockerImage = docker.build "${imageName}:latest"
           docker.withRegistry('', registryCredential) {
             dockerImage.push()
           }
@@ -156,4 +150,15 @@ boolean isVersionCorrect() {
   }
   Matcher matcher = params.IMAGE_VERSION =~ '^(\\d+.\\d+(.\\d+)?)$'
   return matcher.matches()
+}
+
+/**
+ * Gets from the specified version the correct expected Docker image tag. The Docker image tag
+ * will be in two digits. For example, for a version '6.4.2', the Docker image tag will be '6.4'.
+ * @param version the version of the current docker image to build (id est its tag).
+ * @return the normalized Docker image tag (in two digits)
+ */
+boolean normalizeTag(version) {
+  Matcher matcher = version =~ '^(\\d+.\\d+)..+$'
+  matcher ? matcher[0][1] : version
 }
