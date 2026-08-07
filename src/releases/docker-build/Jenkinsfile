@@ -53,6 +53,7 @@ pipeline {
     gitRepo = 'https://github.com/Silverpeas/docker-silverpeas-build'
     gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
     imageName = 'silverpeas/silverbuild'
+    imageTag = normalizeTag(params.IMAGE_VERSION)
   }
 
   stages {
@@ -68,6 +69,21 @@ pipeline {
     stage('Checkout the project') {
       steps {
         git([url: gitRepo, credentialsId: gitCredential])
+      }
+    }
+    stage ('Switch branch for non-latest version') {
+      when {
+        expression { params.IMAGE_VERSION != 'latest' }
+      }
+      steps {
+        // for each Docker image for a stable version of Silverpeas, we should have a dedicated
+        // branch because the build of a Silverpeas project in that version can depend on the libs
+        // of the underlying OS in the Docker image. The limitation here is when such OS isn't
+        // anymore supported and hence provided in Docker Hub.
+        sh """
+          git branch -r | echo ${imageTag}.x &> /dev/null
+          if [ \$? -eq 0 ]; then git switch ${imageTag}.x; else git checkout -b ${imageTag}; git push origin HEAD:${imageTag}.x; endif
+        """
       }
     }
     stage('Update current latest version') {
