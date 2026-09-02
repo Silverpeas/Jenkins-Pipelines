@@ -67,6 +67,7 @@ pipeline {
       args '''
           -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
           -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml 
+          -v $HOME/.gradle/gradle.properties:/home/silverbuild/.gradle/gradle.properties 
           -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
           -v $HOME/.ssh:/home/silverbuild/.ssh 
           -v $HOME/.gnupg:/home/silverbuild/.gnupg
