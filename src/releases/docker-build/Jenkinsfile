@@ -31,12 +31,12 @@ pipeline {
         name: 'WILDFLY_VERSION'
     )
     string(
-        defaultValue: '11',
+        defaultValue: '21',
         description: 'Version of Java to build a Silverpeas project',
         name: 'JAVA_VERSION'
     )
     string(
-        defaultValue: '17',
+        defaultValue: '21',
         description: 'Version of Java to run a Sonar static quality analysis',
         name: 'SONAR_JAVA_VERSION'
     )
