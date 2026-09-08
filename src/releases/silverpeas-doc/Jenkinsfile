@@ -84,6 +84,14 @@ pipeline {
             git checkout ${params.SILVERPEAS_VERSION}
             mvn site-deploy -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true
             """
+          // the documentation of the REST API is produced by the default lifecycle: the resolve
+          // goal of Swagger is bound to the compile phase and forks no compilation, hence the
+          // site lifecycle alone would publish a page without any specification
+          sh '''
+            mvn package site-deploy -Pdeployment,restapi -pl core-restapi \
+                -Djava.awt.headless=true -Dmaven.test.skip=true
+            '''
+          checkRestApiDoc('core-restapi/target/openapi/openapi.json', 150)
         }
       }
     }
@@ -99,7 +107,23 @@ pipeline {
             git checkout ${params.SILVERPEAS_VERSION}
             mvn site-deploy -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true
             """
+          sh '''
+            mvn package site-deploy -Pdeployment,restapi -pl components-restapi \
+                -Djava.awt.headless=true -Dmaven.test.skip=true
+            '''
+          checkRestApiDoc('components-restapi/target/openapi/openapi.json', 60)
         }
+      }
+    }
+
+    stage('Check the consistency of the REST API documentations') {
+      when {
+        expression { releaseBranch == 'master' }
+      }
+      steps {
+        checkCommonResponses(
+            "${projects.core}/core-restapi/target/openapi/openapi.json",
+            "${projects.components}/components-restapi/target/openapi/openapi.json")
       }
     }
 
@@ -140,4 +164,63 @@ boolean isStableVersion() {
 String getDockerImageVersion() {
   Matcher matcher = params.SILVERPEAS_VERSION =~ '^(\\d+.\\d+)\\..*$'
   matcher ? "${matcher[0][1]}" : 'latest'
+}
+
+/**
+ * Checks the OpenAPI document that has just been generated actually documents the REST API. The
+ * generation of such a document is silent about its own failures: it reports a success even when
+ * it produces nothing. Without this check, an incomplete documentation would be published unnoticed.
+ * @param document the path of the generated OpenAPI document.
+ * @param expectedPathCount the minimal count of paths the document is expected to declare.
+ */
+void checkRestApiDoc(String document, int expectedPathCount) {
+  sh """
+    python3 - <<'EOF'
+import json, sys
+paths = json.load(open('${document}')).get('paths', {})
+operations = sum(len(o) for o in paths.values())
+print(f'REST API documentation: {len(paths)} paths, {operations} operations')
+if len(paths) < ${expectedPathCount}:
+    sys.exit(f'FAILURE: only {len(paths)} paths documented, less than the expected ${expectedPathCount}')
+EOF
+    """
+}
+
+/**
+ * Checks the responses that are common to all the endpoints, whatever the web resource they belong
+ * to, are documented the same way in all the specifications. Such a response is brought by the
+ * CommonResponsesFilter class of Swagger, of which each project has its own copy; nothing prevents
+ * the copies from drifting apart, hence this check.
+ * @param documents the paths of the generated OpenAPI documents to compare.
+ */
+void checkCommonResponses(String... documents) {
+  sh """
+    python3 - ${documents.join(' ')} <<'EOF'
+import json, sys
+
+CODE = '503'
+METHODS = ('get', 'put', 'post', 'delete', 'patch', 'head', 'options')
+wordings = {}
+missing = []
+for path in sys.argv[1:]:
+    for uri, item in json.load(open(path)).get('paths', {}).items():
+        for method, operation in item.items():
+            if method not in METHODS:
+                continue
+            response = operation.get('responses', {}).get(CODE)
+            if response is None:
+                missing.append(f'{method.upper()} {uri} of {path}')
+            else:
+                wordings.setdefault(response.get('description'), set()).add(path)
+
+if missing:
+    sys.exit(f'FAILURE: {len(missing)} operations without any {CODE} response, the first one '
+             f'being {missing[0]}')
+if len(wordings) > 1:
+    for wording, documents in wordings.items():
+        print(f'  {sorted(documents)}: {wording}')
+    sys.exit(f'FAILURE: the {CODE} response is worded in {len(wordings)} different ways')
+print(f'Common {CODE} response, consistent across the specifications: {next(iter(wordings))}')
+EOF
+    """
 }
