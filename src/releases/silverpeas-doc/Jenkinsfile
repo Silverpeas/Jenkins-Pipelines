@@ -202,8 +202,10 @@ EOF
 /**
  * Checks the responses that are common to all the endpoints, whatever the web resource they belong
  * to, are documented the same way in all the specifications. Such a response is brought by the
- * CommonResponsesFilter class of Swagger, of which each project has its own copy; nothing prevents
- * the copies from drifting apart, hence this check.
+ * CommonResponsesFilter class, which core-rs provides to every project documenting its REST API.
+ * Each specification must therefore declare it, and word it the same way: two of them disagreeing
+ * would betray a project documented against another version of that class than the one of the
+ * branch being released.
  * @param documents the paths of the generated OpenAPI documents to compare.
  */
 void checkCommonResponses(String... documents) {
