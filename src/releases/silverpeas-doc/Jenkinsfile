@@ -170,6 +170,9 @@ String getDockerImageVersion() {
  * Checks the OpenAPI document that has just been generated actually documents the REST API. The
  * generation of such a document is silent about its own failures: it reports a success even when
  * it produces nothing. Without this check, an incomplete documentation would be published unnoticed.
+ * <p>
+ * Both the paths and the info section are checked. The latter is required by OpenAPI, and a
+ * renderer refuses to display a document that misses it, whatever the quality of the rest.
  * @param document the path of the generated OpenAPI document.
  * @param expectedPathCount the minimal count of paths the document is expected to declare.
  */
@@ -177,11 +180,21 @@ void checkRestApiDoc(String document, int expectedPathCount) {
   sh """
     python3 - <<'EOF'
 import json, sys
-paths = json.load(open('${document}')).get('paths', {})
+specification = json.load(open('${document}'))
+paths = specification.get('paths', {})
+info = specification.get('info') or {}
 operations = sum(len(o) for o in paths.values())
-print(f'REST API documentation: {len(paths)} paths, {operations} operations')
+summarized = sum(1 for p in paths.values() for o in p.values() if o.get('summary'))
+print(f'REST API documentation: {len(paths)} paths, {operations} operations, '
+      f'{summarized} of them summarized')
+if not info.get('title') or not info.get('version'):
+    sys.exit('FAILURE: the specification declares no title nor version in its info section, '
+             'which OpenAPI requires and without which a renderer displays nothing')
 if len(paths) < ${expectedPathCount}:
     sys.exit(f'FAILURE: only {len(paths)} paths documented, less than the expected ${expectedPathCount}')
+if summarized < operations:
+    sys.exit(f'FAILURE: {operations - summarized} operations without any summary, which betrays '
+             f'a scan of artefacts built out of the documented branch')
 EOF
     """
 }
