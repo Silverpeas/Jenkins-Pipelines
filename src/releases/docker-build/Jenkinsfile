@@ -82,7 +82,7 @@ pipeline {
         // anymore supported and hence provided in Docker Hub.
         sh """
           git branch -r | echo ${imageTag}.x &> /dev/null
-          if [ \$? -eq 0 ]; then git switch ${imageTag}.x; else git checkout -b ${imageTag}; git push origin HEAD:${imageTag}.x; endif
+          if [ \$? -eq 0 ]; then git switch ${imageTag}.x; else git checkout -b ${imageTag}; git push origin HEAD:${imageTag}.x; fi
         """
       }
     }
