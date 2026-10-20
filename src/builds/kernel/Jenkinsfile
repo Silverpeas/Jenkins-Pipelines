@@ -1,6 +1,9 @@
 /**
  * Pipeline to construct a build version of the Silverpeas Kernel library. It is triggered by any
- * push of commits onto the main branch of the project in GitHub.
+ * push of commits onto the main branch of the project in GitHub. The build includes a quality
+ * analysis against SonarCloud before the publishing of the build version: a failure of the quality
+ * gate finishes in error the pipeline without publishing anything. Neither the tests nor the quality
+ * analysis can be skipped.
  *
  * Because this pipeline is based upon some convention rules, some expectations have to be
  * fulfilled:
@@ -8,6 +11,9 @@
  *                 to the GitHub plugin of Jenkins (https://<jenkins>/github-webhook/).
  * First run:      the job has to be run once by hand for Jenkins to register the trigger and the
  *                 SCM of the project with which the push events are matched.
+ *
+ * This pipeline expects the following environment variable to be set:
+ * SONAR_JDK_HOME  the home directory of the JDK with which the quality analysis is run.
  *
  * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
@@ -54,12 +60,39 @@ pipeline {
         echo "Build version will be ${buildVersion}"
       }
     }
-    stage('Build and publish') {
+    stage('Build') {
       steps {
         sh """
           mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}
-          mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dcontext=ci
+          mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true
           """
+      }
+    }
+    stage('Quality analysis') {
+      steps {
+        script {
+          String jdkHome = sh(script: 'echo ${SONAR_JDK_HOME}', returnStdout: true).trim()
+          withSonarQubeEnv('Silverpeas SonarCloud') {
+            sh """
+              JAVA_HOME=$jdkHome mvn org.codehaus.mojo:sonar-maven-plugin::sonar \\
+              -Dsonar.projectKey=Silverpeas_Silverpeas-Kernel \\
+              -Dsonar.organization=silverpeas \\
+              -Dsonar.branch.name=main
+              """
+          }
+          timeout(time: 30, unit: 'MINUTES') {
+            // Just in case something goes wrong, pipeline will be killed after a timeout
+            def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
+            if (qg.status != 'OK' && qg.status != 'WARNING') {
+              error "Pipeline aborted due to quality gate failure: ${qg.status}"
+            }
+          }
+        }
+      }
+    }
+    stage('Publish') {
+      steps {
+        sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
       }
     }
     stage('Create YAML build report') {
