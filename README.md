@@ -51,6 +51,7 @@ for a release of a stable version.
 | `project`            | the Silverpeas Project POM (parent POM of all Silverpeas projects) and its two BOM projects |
 | `silverpeas`         | Silverpeas itself: Core, Components, Assembly, Setup, Distribution and Looks                |
 | `mobile`             | Silverpeas Mobile                                                                           |
+| `kernel`             | the Silverpeas Kernel library, built at each push onto its `main` branch                    |
 | `sso`                | the SSO library for Silverpeas                                                              |
 | `wbe`                | the Web Browser Edition library for Silverpeas                                              |
 | `jackrabbit-jca`     | the RAR of JackRabbit JCA customized for Silverpeas                                         |

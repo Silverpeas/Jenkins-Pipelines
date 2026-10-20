@@ -173,6 +173,7 @@ contributor(closures) {
         method(name: 'upstream', type: Object, params: [name: String, build_status: Object])
         method(name: 'pollSCM', type: String, params: [expr: String])
         method(name: 'bitbucketPush')
+        method(name: 'githubPush')
         method(name: 'GenericTrigger', type: Object, doc: 'Generic Webhook Trigger',
                 namedParams: [parameter(name: 'genericVariables', type: List, doc: 'Request body'),
                               parameter(name: 'genericRequestVariables', type: List, doc: 'Request query parameters'),
