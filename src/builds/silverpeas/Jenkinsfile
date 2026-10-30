@@ -435,6 +435,7 @@ void buildMavenProject(args) {
         sh '''
       /opt/wildfly-for-tests/wildfly-*.Final/bin/standalone.sh -c standalone-full.xml &> /dev/null &
       mvn clean install -Pdeployment -Pcoverage -Djava.awt.headless=true -Dcontext=ci
+      node --test **/src/test/javascript/*.test.cjs
       /opt/wildfly-for-tests/wildfly-*.Final/bin/jboss-cli.sh --connect :shutdown
       '''
     }
