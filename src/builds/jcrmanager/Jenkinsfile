@@ -1,0 +1,186 @@
+/**
+ * Pipeline to construct a build version of the JCR Manager, the Silverpeas application providing
+ * an administration tool for the JCR. As a Silverpeas application, it depends on both Silverpeas
+ * Core and Silverpeas Components: its parent POM is the one of Silverpeas Components. Hence, the
+ * pipeline fetches the build result report of the latest successful build version of Silverpeas in
+ * order to construct the JCR Manager upon that version of Silverpeas.
+ *
+ * The pipeline is triggered both by any push of commits onto the main branch of the project in
+ * GitHub and by any successful build of Silverpeas. A build version of the JCR Manager is then
+ * constructed if and only if a change has been pushed onto the project or if Silverpeas has been
+ * updated since the last build version. As the version lifecycle of the project can differ from the
+ * Silverpeas one, the build version is computed from the next release of the project and from the
+ * date of the build ('<next.release>-build<yyMMdd>').
+ *
+ * The parent POM and the dependency on Silverpeas Core (the 'core.version' property) are set with
+ * the version of Silverpeas just before the build; as for Silverpeas Components, these changes
+ * aren't committed: the project stays at its development version in the SCM.
+ *
+ * Because this pipeline is based upon some convention rules, some expectations have to be
+ * fulfilled:
+ * GitHub webhook: the GitHub project silverpeas-jcrmanager must have a webhook sending its push
+ *                 events to the GitHub plugin of Jenkins (https://<jenkins>/github-webhook/).
+ * First run:      the job has to be run once by hand for Jenkins to register the triggers and the
+ *                 SCM of the project with which the push events are matched.
+ * Dependent Jenkins job name: the job producing a build version of Silverpeas upon which this
+ *                             project depends must be named 'Silverpeas_Master_AutoDeploy'.
+ * POM of the project: it has to define the next release of the project in the 'next.release'
+ *                     property.
+ *
+ * The build is performed within a dedicated Docker image in order to ensure the reproducibility of
+ * the builds and to containerize them from the host OS.
+ *
+ * This pipeline requires the following parameters:
+ * SKIP_TEST     (optional) a boolean indicating if the execution of the tests should be skipped.
+ *               False by default.
+ */
+pipeline {
+
+  agent {
+    docker {
+      image 'silverpeas/silverbuild'
+      args '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig
+          -v $HOME/.ssh:/home/silverbuild/.ssh
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+    }
+  }
+
+  triggers {
+    githubPush()
+    upstream(upstreamProjects: 'Silverpeas_Master_AutoDeploy',
+        threshold: hudson.model.Result.SUCCESS)
+  }
+
+  parameters {
+    booleanParam(
+        defaultValue: false,
+        description: 'Flag indicating if the execution of the tests should be skipped',
+        name: 'SKIP_TEST'
+    )
+  }
+
+  environment {
+    nexusRepo = 'https://nexus3.silverpeas.org/repository/builds'
+    gitRepo = 'https://github.com/Silverpeas/silverpeas-jcrmanager'
+    gitCredential = 'cacc0467-7c85-41d1-bf4e-eaa470dd5e59'
+    silverpeasJob = 'Silverpeas_Master_AutoDeploy'
+    buildNumber = (new Date()).format('yyMMdd')
+    buildVersion = ''
+    previousBuildVersion = ''
+    release = ''
+    silverpeasVersion = ''
+    triggerBuild = ''
+    artifact = 'target/build.yaml'
+  }
+
+  stages {
+    stage('Resolve dependency on Silverpeas') {
+      steps {
+        copyArtifacts projectName: silverpeasJob, filter: 'build.yaml', flatten: true,
+            target: 'silverpeas'
+        script {
+          def silverpeasBuild = readYaml file: 'silverpeas/build.yaml'
+          silverpeasVersion = silverpeasBuild.version
+        }
+        sh 'rm -rf silverpeas'
+        echo "Silverpeas version is ${silverpeasVersion}"
+      }
+    }
+    stage('Prepare the build') {
+      steps {
+        git([url: gitRepo, branch: 'main', credentialsId: gitCredential])
+        script {
+          // the report of the previous build version, if any (none at the first run)
+          copyArtifacts projectName: env.JOB_NAME, filter: 'build.yaml', flatten: true,
+              target: 'previous', optional: true
+          final String commit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+          if (fileExists('previous/build.yaml')) {
+            def previousBuild = readYaml file: 'previous/build.yaml'
+            previousBuildVersion = previousBuild.version
+            echo "Current commit is ${commit} and last build commit is ${previousBuild.commit}"
+            echo "Last build version was constructed upon Silverpeas ${previousBuild.silverpeas}"
+            triggerBuild = (commit != previousBuild.commit ||
+                silverpeasVersion != previousBuild.silverpeas).toString()
+          } else {
+            echo 'No previous build version'
+            triggerBuild = 'true'
+          }
+          def pom = readMavenPom()
+          release = pom.properties['next.release']
+          if (!release) {
+            error 'The next release of the project must be set in the next.release property'
+          }
+          buildVersion = "${release}-build${buildNumber}"
+        }
+        script {
+          if (triggerBuild.toBoolean()) {
+            echo "Build version will be ${buildVersion}"
+          } else {
+            echo 'No changes in the project and no update of Silverpeas since the last build'
+          }
+        }
+      }
+    }
+    stage('Build') {
+      when {
+        expression { triggerBuild.toBoolean() }
+      }
+      steps {
+        script {
+          String skipTest = params.SKIP_TEST ? '-Dmaven.test.skip=true' : ''
+          sh """
+            mvn -U versions:update-parent -DgenerateBackupPoms=false -DskipResolution=true -DparentVersion="${silverpeasVersion}"
+            sed -i -e "s/<core.version>[0-9a-zA-Z.-]\\+/<core.version>${silverpeasVersion}/g" pom.xml
+            mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}
+            mvn clean install -Pdeployment -Pcoverage ${skipTest} -Djava.awt.headless=true
+            """
+        }
+      }
+    }
+    stage('Publish') {
+      when {
+        expression { triggerBuild.toBoolean() }
+      }
+      steps {
+        sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
+      }
+    }
+    stage('Create YAML build report') {
+      steps {
+        script {
+          sh 'mkdir -p target'
+          if (triggerBuild.toBoolean()) {
+            final String commit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+            writeYaml file: artifact, overwrite: true, data: ['version'   : buildVersion,
+                                                               'silverpeas': silverpeasVersion,
+                                                               'release'   : release,
+                                                               'commit'    : commit,
+                                                               'tested'    : !params.SKIP_TEST]
+          } else {
+            // nothing has been built: the report of the previous build version is kept
+            sh "cp previous/build.yaml ${artifact}"
+          }
+          sh 'rm -rf previous'
+        }
+      }
+    }
+  }
+  post {
+    success {
+      script {
+        currentBuild.displayName = triggerBuild.toBoolean() ? buildVersion : previousBuildVersion
+      }
+      archiveArtifacts artifacts: artifact, fingerprint: true
+    }
+    always {
+      step([$class                  : 'Mailer',
+            notifyEveryUnstableBuild: true,
+            recipients              : "miguel.moquillon@silverpeas.org, silveryocha@chastagnier.com",
+            sendToIndividuals       : true])
+    }
+  }
+}
