@@ -80,7 +80,7 @@ pipeline {
   stages {
     stage('Resolve dependency on Silverpeas') {
       steps {
-        copyArtifacts projectName: silverpeasJob, filter: 'build.yaml', flatten: true,
+        copyArtifacts projectName: silverpeasJob, filter: '**/build.yaml', flatten: true,
             target: 'silverpeas'
         script {
           def silverpeasBuild = readYaml file: 'silverpeas/build.yaml'
@@ -95,7 +95,7 @@ pipeline {
         git([url: gitRepo, branch: 'main', credentialsId: gitCredential])
         script {
           // the report of the previous build version, if any (none at the first run)
-          copyArtifacts projectName: env.JOB_NAME, filter: 'build.yaml', flatten: true,
+          copyArtifacts projectName: env.JOB_NAME, filter: '**/build.yaml', flatten: true,
               target: 'previous', optional: true
           final String commit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
           if (fileExists('previous/build.yaml')) {
@@ -125,7 +125,7 @@ pipeline {
         }
       }
     }
-    stage('Build') {
+    stage('Build and Publish') {
       when {
         expression { triggerBuild.toBoolean() }
       }
@@ -136,17 +136,9 @@ pipeline {
             mvn -U versions:update-parent -DgenerateBackupPoms=false -DskipResolution=true -DparentVersion="${silverpeasVersion}"
             sed -i -e "s/<core.version>[0-9a-zA-Z.-]\\+/<core.version>${silverpeasVersion}/g" pom.xml
             mvn -U versions:set -DgenerateBackupPoms=false -DnewVersion=${buildVersion}
-            mvn clean install -Pdeployment -Pcoverage ${skipTest} -Djava.awt.headless=true
+            mvn clean deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Pcoverage ${skipTest} -Djava.awt.headless=true
             """
         }
-      }
-    }
-    stage('Publish') {
-      when {
-        expression { triggerBuild.toBoolean() }
-      }
-      steps {
-        sh "mvn deploy -DaltDeploymentRepository=silverpeas::default::${nexusRepo} -Pdeployment -Djava.awt.headless=true -Dmaven.test.skip=true"
       }
     }
     stage('Create YAML build report') {
