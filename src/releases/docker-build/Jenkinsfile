@@ -20,6 +20,10 @@ import java.util.regex.Matcher
  * WILDFLY_VERSION    the version of Wildfly prepared for running the integration tests
  * JAVA_VERSION       the version of Java on which the Silverpeas platform is based.
  * SONAR_JAVA_VERSION the version of Java on which the Sonar analysis tool should be run.
+ *
+ * The image is built with the group id of the group docker of the Jenkins node (build argument
+ * DOCKER_GROUP_ID) so that the jobs running in a container of this image can use the Docker daemon
+ * of the node (by mounting its socket and by adding the group docker to the user of the container).
  */
 pipeline {
 
@@ -124,6 +128,7 @@ pipeline {
             "--build-arg WILDFLY_VERSION=${params.WILDFLY_VERSION} " +
                 "--build-arg JAVA_VERSION=${params.JAVA_VERSION} " +
                 "--build-arg SONAR_JAVA_VERSION=${params.SONAR_JAVA_VERSION} " +
+                "--build-arg DOCKER_GROUP_ID=${getDockerGroupId()} " +
                 " .")
           docker.withRegistry('', registryCredential) {
             dockerImage.push()
@@ -137,7 +142,8 @@ pipeline {
       }
       steps {
         script {
-          def dockerImage = docker.build "${imageName}:latest"
+          def dockerImage = docker.build("${imageName}:latest",
+            "--build-arg DOCKER_GROUP_ID=${getDockerGroupId()} .")
           docker.withRegistry('', registryCredential) {
             dockerImage.push()
           }
@@ -158,6 +164,18 @@ pipeline {
             sendToIndividuals       : true])
     }
   }
+}
+
+/**
+ * Gets the group id of the group docker of the current Jenkins node.
+ * @return the group id of the group docker.
+ */
+String getDockerGroupId() {
+  String gid = sh(script: 'getent group docker | cut -d: -f3', returnStdout: true).trim()
+  if (gid == '') {
+    error 'No group docker on the Jenkins node'
+  }
+  return gid
 }
 
 boolean isVersionCorrect() {

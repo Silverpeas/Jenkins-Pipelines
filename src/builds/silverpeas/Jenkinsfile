@@ -8,9 +8,11 @@ import java.util.regex.Matcher
  *
  * The pipeline builds Silverpeas-Core, then Silverpeas-Components, and eventually
  * Silverpeas-Looks if and only if a change has been detected in one of these projects. The
- * builds include at their end a quality analysis against SonarCloud. Once the builds succeed, the
- * constructed artifacts is then deployed into the Silverpeas's remote Maven repository. Any
- * fail of one of the steps finishes in error the pipeline.
+ * builds include at their end a quality analysis against SonarCloud. For the master branch, the
+ * functional tests of Silverpeas (project Silverpeas-Functional-Tests) are then run against the
+ * build version of Silverpeas. Once the builds and the tests succeed, the constructed artifacts is
+ * then deployed into the Silverpeas's remote Maven repository: they aren't published if the
+ * functional tests fail. Any fail of one of the steps finishes in error the pipeline.
  *
  * This pipeline triggers at the end of the job the following pipelines:
  * - 'Silverpeas Test Image' to publish a Docker image of the build version of Silverpeas for
@@ -41,8 +43,18 @@ import java.util.regex.Matcher
  * The job is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
  *
+ * The functional tests start with Docker Compose an environment (Silverpeas, PostgreSQL, Mailpit)
+ * in which the build version of Silverpeas is installed, and they run Playwright in a container
+ * (see the script scripts/ci-run.sh of the Silverpeas-Functional-Tests project). For doing, the
+ * Docker daemon of the host is used from the build container: its socket is mounted into the
+ * container and the group docker is added to the user (the image provides the Docker client with
+ * the Compose plugin and a group docker with the group id of the host). The host is expected to
+ * provide the Docker image silverpeas-run:latest (project silverpeas-run), base of the
+ * environment.
+ *
  * This pipeline requires the following parameters:
- * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped.
+ * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped,
+ *               including the functional tests. False by default.
  * SKIP_QUALITY  (optional) a boolean indicating if the execution of the quality analysis should be
  *               skipped. False by default.
  */
@@ -69,6 +81,14 @@ def projects = [
         distribution: 'Silverpeas-Distribution',
         assembly    : 'Silverpeas-Assembly']
 
+// project of the functional tests of Silverpeas (only for the master branch)
+def functionalTests = [
+        project   : 'Silverpeas-Functional-Tests',
+        branch    : 'main',
+        // directory in the workspace into which are copied the artifacts of the build version of
+        // Silverpeas, for the functional tests
+        repository: 'functional-tests-repository']
+
 pipeline {
 
     agent {
@@ -81,6 +101,8 @@ pipeline {
           -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
           -v $HOME/.ssh:/home/silverbuild/.ssh 
           -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          -v /var/run/docker.sock:/var/run/docker.sock
+          --group-add docker
           '''
         }
     }
@@ -265,6 +287,46 @@ pipeline {
                             runSonarAnalysis project: projects.looks,
                                     branch: branch,
                                     change: changes[projects.looks]
+                        }
+                    }
+                }
+                stage('Run the functional tests') {
+                    when { expression { branch == 'master' && !params.SKIP_TEST } }
+                    options {
+                        timeout(time: 1, unit: 'HOURS')
+                    }
+                    steps {
+                        dir(functionalTests.project) {
+                            git credentialsId: gitCredential,
+                                    branch: functionalTests.branch,
+                                    url: "${gitBaseRepo}/${functionalTests.project}"
+                        }
+                        // The environment of the tests is run by the Docker daemon of the host: the
+                        // artifacts of the build version of Silverpeas, in the local Maven
+                        // repository of this container, are copied into the workspace, mounted at
+                        // the same path in this container and on the host.
+                        sh """
+            rm -rf ${functionalTests.repository}
+            mkdir -p ${functionalTests.repository}
+            (cd \$HOME/.m2/repository && find org/silverpeas -type f -path '*/${buildVersion}/*' \\
+              ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-tests.jar' \\
+              -exec cp --parents -t "\${WORKSPACE}/${functionalTests.repository}" {} +)
+            cd ${functionalTests.project}
+            SILVERPEAS_VERSION=${buildVersion} \\
+            MAVEN_REPOSITORY=\${WORKSPACE}/${functionalTests.repository} \\
+            COMPOSE_PROJECT_NAME=silverpeas-ft-ci-${env.BUILD_NUMBER} \\
+            ./scripts/ci-run.sh
+            """
+                    }
+                    post {
+                        always {
+                            junit testResults: "${functionalTests.project}/reports/junit.xml",
+                                    allowEmptyResults: true
+                            archiveArtifacts allowEmptyArchive: true, artifacts:
+                                    "${functionalTests.project}/reports/**," +
+                                            "${functionalTests.project}/playwright-report/**," +
+                                            "${functionalTests.project}/test-results/**"
+                            sh "rm -rf ${functionalTests.repository}"
                         }
                     }
                 }
