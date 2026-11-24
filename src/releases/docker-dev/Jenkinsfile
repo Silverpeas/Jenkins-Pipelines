@@ -26,7 +26,7 @@ pipeline {
         name: 'WILDFLY_VERSION'
     )
     string(
-        defaultValue: '11',
+        defaultValue: '21',
         description: 'Version of Java to build a Silverpeas project',
         name: 'JAVA_VERSION'
     )
