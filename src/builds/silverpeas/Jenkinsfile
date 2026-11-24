@@ -48,9 +48,11 @@ import java.util.regex.Matcher
  * (see the script scripts/ci-run.sh of the Silverpeas-Functional-Tests project). For doing, the
  * Docker daemon of the host is used from the build container: its socket is mounted into the
  * container and the group docker is added to the user (the image provides the Docker client with
- * the Compose plugin and a group docker with the group id of the host). The host is expected to
- * provide the Docker image silverpeas-run:latest (project silverpeas-run), base of the
- * environment.
+ * the Compose plugin and a group docker with the group id of the host). The base image of the
+ * environment is the one set in the docker/.env.example file of the Silverpeas-Functional-Tests
+ * project (silverpeas/silverpeas-run:latest, project silverpeas-run). As the docker/.env file is
+ * created from it only when it doesn't exist, it is removed before each run so that it is always
+ * up-to-date with the fetched version of the project.
  *
  * This pipeline requires the following parameters:
  * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped,
@@ -312,6 +314,7 @@ pipeline {
               ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-tests.jar' \\
               -exec cp --parents -t "\${WORKSPACE}/${functionalTests.repository}" {} +)
             cd ${functionalTests.project}
+            rm -f docker/.env
             SILVERPEAS_VERSION=${buildVersion} \\
             MAVEN_REPOSITORY=\${WORKSPACE}/${functionalTests.repository} \\
             COMPOSE_PROJECT_NAME=silverpeas-ft-ci-${env.BUILD_NUMBER} \\
