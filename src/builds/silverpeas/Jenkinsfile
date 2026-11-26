@@ -43,16 +43,17 @@ import java.util.regex.Matcher
  * The job is performed within a dedicated Docker image in order to ensure the reproducibility of
  * the builds and to containerize them from the host OS.
  *
- * The functional tests start with Docker Compose an environment (Silverpeas, PostgreSQL, Mailpit)
- * in which the build version of Silverpeas is installed, and they run Playwright in a container
- * (see the script scripts/ci-run.sh of the Silverpeas-Functional-Tests project). For doing, the
- * Docker daemon of the host is used from the build container: its socket is mounted into the
- * container and the group docker is added to the user (the image provides the Docker client with
- * the Compose plugin and a group docker with the group id of the host). The base image of the
- * environment is the one set in the docker/.env.example file of the Silverpeas-Functional-Tests
- * project (silverpeas/silverpeas-run:latest, project silverpeas-run). As the docker/.env file is
- * created from it only when it doesn't exist, it is removed before each run so that it is always
- * up-to-date with the fetched version of the project.
+ * The functional tests (master branch only) start with Docker Compose an environment (Silverpeas,
+ * PostgreSQL, Mailpit) in which the build version of Silverpeas is installed, and they run
+ * Playwright in a container (see the script scripts/ci-run.sh of the Silverpeas-Functional-Tests
+ * project). For doing, the Docker daemon of the host is used from the build container: its socket
+ * is mounted into the container and the group docker is added to the user (the image provides the
+ * Docker client with the Compose plugin and a group docker with the group id of the host). This is
+ * done only for the master branch as the images for the older branches don't provide them. The
+ * base image of the environment is the one set in the docker/.env.example file of the
+ * Silverpeas-Functional-Tests project (silverpeas/silverpeas-run:latest, project silverpeas-run).
+ * As the docker/.env file is created from it only when it doesn't exist, it is removed before each
+ * run so that it is always up-to-date with the fetched version of the project.
  *
  * This pipeline requires the following parameters:
  * SKIP_TEST     (optional) a boolean indicating if the execution of the test should be skipped,
@@ -91,21 +92,30 @@ def functionalTests = [
         // Silverpeas, for the functional tests
         repository: 'functional-tests-repository']
 
+// arguments of the build container. For the master branch only, the Docker daemon of the host is
+// made available for the functional tests: the images of the older branches provide neither the
+// Docker client nor a group docker.
+String containerArgs = '''
+          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml
+          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml
+          -v $HOME/.gradle/gradle.properties:/home/silverbuild/.gradle/gradle.properties
+          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig
+          -v $HOME/.ssh:/home/silverbuild/.ssh
+          -v $HOME/.gnupg:/home/silverbuild/.gnupg
+          '''
+if (branch == 'master') {
+    containerArgs += '''
+          -v /var/run/docker.sock:/var/run/docker.sock
+          --group-add docker
+          '''
+}
+
 pipeline {
 
     agent {
         docker {
             image "silverpeas/silverbuild:${imageVersion}"
-            args '''
-          -v $HOME/.m2/settings.xml:/home/silverbuild/.m2/settings.xml 
-          -v $HOME/.m2/settings-security.xml:/home/silverbuild/.m2/settings-security.xml
-          -v $HOME/.gradle/gradle.properties:/home/silverbuild/.gradle/gradle.properties 
-          -v $HOME/.gitconfig:/home/silverbuild/.gitconfig 
-          -v $HOME/.ssh:/home/silverbuild/.ssh 
-          -v $HOME/.gnupg:/home/silverbuild/.gnupg
-          -v /var/run/docker.sock:/var/run/docker.sock
-          --group-add docker
-          '''
+            args containerArgs
         }
     }
 
